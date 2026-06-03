@@ -32,6 +32,7 @@ default_handbook: 2025年本科生学生手册.pdf
 upload_dir: data/uploads
 vector_db_path: data/vector_db/school_rules.db
 record_path: vector_db_data/handbook_chunks.json
+settings_path: data/settings/app_config.json
 
 encoder_batch_size: 16
 Encoder:

@@ -1,14 +1,12 @@
 # -*- encoding: utf-8 -*-
 import json
+import re
 import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-import numpy as np
-
-from rapid_rag.encoder import EncodeText
 from rapid_rag.file_loader.office_loader import OfficeLoader
 from rapid_rag.file_loader.pdf_loader import PDFLoader
 from rapid_rag.file_loader.txt_loader import TXTLoader
@@ -28,19 +26,38 @@ class KnowledgeBaseService:
         self.record_path = Path(
             self.config.get("record_path", "vector_db_data/handbook_chunks.json")
         )
-        self.encoder = self._init_encoder()
+        self.encoder = None
         self.db = DBUtils(self.vector_db_path)
         self.pdf_loader = PDFLoader()
         self.office_loader = OfficeLoader()
         self.txt_loader = TXTLoader()
+        self.min_chunk_length = 20
+        self.chunk_merge_target = max(
+            int(self.config.get("SENTENCE_SIZE", 200) * 1.5), 120
+        )
 
         mkdir(self.upload_dir)
         mkdir(self.record_path.parent)
 
     def _init_encoder(self):
+        from rapid_rag.encoder import EncodeText
+
         encoder_params = self.config.get("Encoder", {})
-        model_name, params = next(iter(encoder_params.items()))
-        return EncodeText(**params)
+        for model_name, params in encoder_params.items():
+            if model_name == "ERNIEBot":
+                continue
+            return EncodeText(**params)
+        raise RuntimeError("No local encoder configuration found.")
+
+    def _get_encoder(self):
+        if self.encoder is None:
+            try:
+                self.encoder = self._init_encoder()
+            except ModuleNotFoundError as exc:
+                raise RuntimeError(
+                    "Embedding dependencies are missing. Install the project requirements before importing or querying documents."
+                ) from exc
+        return self.encoder
 
     def add_documents(self, file_paths: List[str]) -> List[Dict]:
         stored_records = []
@@ -55,7 +72,7 @@ class KnowledgeBaseService:
         if not stored_records:
             return []
 
-        embeddings = self.encoder([record["text"] for record in stored_records])
+        embeddings = self._get_encoder()([record["text"] for record in stored_records])
         if embeddings is None or len(embeddings) == 0:
             return []
 
@@ -67,11 +84,13 @@ class KnowledgeBaseService:
         return [enrich_source(record) for record in stored_records]
 
     def query_documents(self, query: str, top_k: int = 5) -> List[Dict]:
-        query_embedding = self.encoder(query)
-        results, _ = self.db.search_with_metadata(query_embedding, top_k=top_k)
+        query_embedding = self._get_encoder()(query)
+        search_top_k = max(top_k * 3, top_k)
+        results, _ = self.db.search_with_metadata(query_embedding, top_k=search_top_k)
         if not results:
             return []
-        return [enrich_source(result) for result in results]
+        reranked = self._rerank_results(query, results)
+        return [enrich_source(result) for result in reranked[:top_k]]
 
     def list_documents(self) -> List[Dict]:
         file_names = self.db.get_files() or []
@@ -126,7 +145,10 @@ class KnowledgeBaseService:
         for page_idx, content in enumerate(contents, start=1):
             page_text = content[1] if isinstance(content, (list, tuple)) else content
             split_contents = self.pdf_loader.splitter.split_text(page_text)
-            for text in split_contents:
+            merged_contents = self._merge_chunks(split_contents)
+            for text in merged_contents:
+                if not self._is_meaningful_chunk(text):
+                    continue
                 paragraph_no += 1
                 records.append(
                     {
@@ -159,7 +181,10 @@ class KnowledgeBaseService:
         paragraph_no = 0
         for raw_text in contents:
             split_contents = splitter.split_text(raw_text)
-            for text in split_contents:
+            merged_contents = self._merge_chunks(split_contents)
+            for text in merged_contents:
+                if not self._is_meaningful_chunk(text):
+                    continue
                 paragraph_no += 1
                 records.append(
                     {
@@ -189,3 +214,81 @@ class KnowledgeBaseService:
         self.record_path.write_text(
             json.dumps(existing, ensure_ascii=True, indent=2), encoding="utf-8"
         )
+
+    def _merge_chunks(self, chunks: List[str]) -> List[str]:
+        merged = []
+        buffer = []
+        buffer_length = 0
+        for raw_chunk in chunks:
+            chunk = raw_chunk.strip()
+            if not chunk:
+                continue
+            projected_length = buffer_length + len(chunk)
+            if buffer and projected_length > self.chunk_merge_target:
+                merged.append(" ".join(buffer).strip())
+                buffer = [chunk]
+                buffer_length = len(chunk)
+            else:
+                buffer.append(chunk)
+                buffer_length = projected_length
+
+        if buffer:
+            merged.append(" ".join(buffer).strip())
+        return merged
+
+    def _is_meaningful_chunk(self, text: str) -> bool:
+        compact = " ".join(text.split())
+        if len(compact) < self.min_chunk_length:
+            return False
+        if "目录" in compact and len(compact) < 80:
+            return False
+        if compact.endswith("学生手册") and len(compact) < 40:
+            return False
+        digit_count = sum(char.isdigit() for char in compact)
+        if digit_count > len(compact) * 0.5:
+            return False
+        return True
+
+    def _rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
+        keywords = self._extract_keywords(query)
+        scored_results = []
+        for index, result in enumerate(results):
+            text = result.get("text", "")
+            score = 0
+            for keyword in keywords:
+                if keyword in text:
+                    score += 3
+            if result.get("section_title"):
+                for keyword in keywords:
+                    if keyword in result["section_title"]:
+                        score += 2
+            if "绩点" in query and "绩点" in text:
+                score += 4
+            if any(term in query for term in ["怎么办", "如何", "怎么"]):
+                if any(term in text for term in ["重修", "补考", "处理", "规定", "不得"]):
+                    score += 2
+            scored_results.append((score, -index, result))
+
+        scored_results.sort(reverse=True)
+        return [item[2] for item in scored_results]
+
+    def _extract_keywords(self, query: str) -> List[str]:
+        parts = re.split(r"[，。！？、\s]+", query)
+        keywords = []
+        stop_words = {"怎么办", "如何", "怎么", "是否", "可以", "需要", "如果", "什么"}
+        for part in parts:
+            token = part.strip()
+            if len(token) < 2 or token in stop_words:
+                continue
+            keywords.append(token)
+            if len(token) > 2:
+                keywords.extend(
+                    sub_token
+                    for sub_token in ["绩点", "重修", "补考", "学分", "成绩", "不及格", "挂科"]
+                    if sub_token in token
+                )
+        deduped = []
+        for keyword in keywords:
+            if keyword not in deduped:
+                deduped.append(keyword)
+        return deduped

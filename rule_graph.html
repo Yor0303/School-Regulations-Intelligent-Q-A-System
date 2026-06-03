@@ -1,0 +1,31 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rule Graph</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    h1 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    ul { line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>School Policy Rule Graph</h1>
+  <div class="grid">
+    <section>
+      <h2>Nodes</h2>
+      <ul>
+        <li><strong>学生</strong> (role)</li><li><strong>课程未通过</strong> (result)</li><li><strong>补考</strong> (action)</li><li><strong>旷课</strong> (action)</li><li><strong>不得参加期末考核</strong> (result)</li><li><strong>缺考</strong> (action)</li><li><strong>零分</strong> (result)</li><li><strong>缓考</strong> (action)</li><li><strong>教务部审核</strong> (rule)</li><li><strong>考试违纪</strong> (action)</li><li><strong>无效</strong> (result)</li><li><strong>违纪课程</strong> (rule)</li><li><strong>学分0</strong> (result)</li><li><strong>计入绩点统计</strong> (rule)</li><li><strong>成绩</strong> (rule)</li><li><strong>绩点</strong> (rule)</li><li><strong>平均绩点</strong> (rule)</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Edges</h2>
+      <ul>
+        <li>学生 -> 课程未通过 : 可能出现</li><li>学生 -> 旷课 : 可能发生</li><li>学生 -> 缺考 : 可能发生</li><li>学生 -> 缓考 : 可申请</li><li>学生 -> 考试违纪 : 可能发生</li><li>课程未通过 -> 补考 : 可参加</li><li>旷课 -> 不得参加期末考核 : 导致</li><li>缺考 -> 零分 : 记为</li><li>缓考 -> 教务部审核 : 需要</li><li>考试违纪 -> 无效 : 成绩标注</li><li>违纪课程 -> 学分0 : 记为</li><li>学分0 -> 计入绩点统计 : 影响</li><li>成绩 -> 绩点 : 影响</li><li>绩点 -> 平均绩点 : 组成</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

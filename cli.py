@@ -10,7 +10,7 @@ from rapid_rag.llm import ERNIEBot
 from rapid_rag.utils import make_prompt, read_yaml
 from rapid_rag.vector_utils import DBUtils
 
-config = read_yaml("knowledge_qa_llm/config.yaml")
+config = read_yaml("rapid_rag/config.yaml")
 
 extract = FileLoader()
 

@@ -1,7 +1,10 @@
-title: 🧐 Knowledge QA LLM
-version: 0.0.10
+title: School Rules QA System
+version: 1.0.0
 
 LLM_API:
+  Ollama:
+    host: http://localhost:11434
+    model: qwen2.5:7b
   ERNIEBot:
     api_type: aistudio
     access_token: your_token
@@ -14,10 +17,21 @@ LLM_API:
   InternLM_7B:
     api_url: your_api
 
-DEFAULT_PROMPT: 问题是：$query，从下面文章里，找出能回答以上问题的答案。如果文中没有答案，回答“没找到答案”。 文章：$context\n
+DEFAULT_PROMPT: |
+  You are a school rules assistant.
+  Answer the user's question strictly based on the uploaded school policy documents.
+  If the answer is not clearly supported by the documents, reply with "No clear supporting rule was found in the uploaded documents."
 
-upload_dir: assets/raw_upload_files
-vector_db_path: assets/db/DefaultVector.db
+  User question:
+  $query
+
+  Retrieved context:
+  $context
+
+default_handbook: 2025年本科生学生手册.pdf
+upload_dir: data/uploads
+vector_db_path: data/vector_db/school_rules.db
+record_path: vector_db_data/handbook_chunks.json
 
 encoder_batch_size: 16
 Encoder:
@@ -27,9 +41,7 @@ Encoder:
   m3e-small:
     model_path: assets/models/m3e-small
 
-# text splitter
 SENTENCE_SIZE: 200
-
 top_k: 5
 
 Parameter:
@@ -38,16 +50,16 @@ Parameter:
     max_value: 4096
     default: 1024
     step: 1
-    tip: 生成结果时的最大token数
+    tip: Maximum generated token length.
   top_p:
     min_value: 0.0
     max_value: 1.0
     default: 0.7
     step: 0.01
-    tip: 用于控制模型生成文本时，选择下一个单词的概率分布的范围。
+    tip: Controls nucleus sampling during text generation.
   temperature:
     min_value: 0.01
     max_value: 1.0
     default: 0.01
     step: 0.01
-    tip: 用于调整模型生成文本时的创造性程度，较高的temperature将使模型更有可能生成新颖、独特的文本，而较低的温度则更有可能生成常见或常规的文本
+    tip: Controls generation randomness.

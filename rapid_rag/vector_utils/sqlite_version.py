@@ -4,6 +4,7 @@
 import io
 import sqlite3
 import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import faiss
@@ -46,12 +47,32 @@ class DBUtils:
     def connect_db(
         self,
     ):
+        db_parent = Path(self.db_path).parent
+        db_parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         cur = con.cursor()
         cur.execute(
             f"create table if not exists {self.table_name} (id integer primary key autoincrement, file_name TEXT, embeddings array UNIQUE, texts TEXT, uids TEXT)"
         )
+        self._ensure_metadata_columns(cur)
         return cur, con
+
+    def _ensure_metadata_columns(self, cur):
+        cur.execute(f"pragma table_info({self.table_name})")
+        columns = {row[1] for row in cur.fetchall()}
+        metadata_columns = {
+            "chunk_id": "TEXT",
+            "doc_type": "TEXT",
+            "page_no": "INTEGER",
+            "paragraph_no": "INTEGER",
+            "section_title": "TEXT",
+            "upload_time": "TEXT",
+        }
+        for column_name, column_type in metadata_columns.items():
+            if column_name not in columns:
+                cur.execute(
+                    f"alter table {self.table_name} add column {column_name} {column_type}"
+                )
 
     def load_vectors(self, uid: Optional[str] = None):
         cur, _ = self.connect_db()
@@ -132,19 +153,129 @@ class DBUtils:
         )
         con.commit()
 
+    def insert_records(self, records: List[Dict]):
+        if not records:
+            return
+
+        cur, con = self.connect_db()
+        insert_sql = f"""
+        insert or replace into {self.table_name}
+        (file_name, embeddings, texts, uids, chunk_id, doc_type, page_no, paragraph_no, section_title, upload_time)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        payload = [
+            (
+                record["file_name"],
+                record["embedding"],
+                record["text"],
+                record.get("uid", ""),
+                record["chunk_id"],
+                record.get("doc_type"),
+                record.get("page_no"),
+                record.get("paragraph_no"),
+                record.get("section_title"),
+                record.get("upload_time"),
+            )
+            for record in records
+        ]
+        cur.executemany(insert_sql, payload)
+        con.commit()
+        self.vector_nums = 0
+
+    def search_with_metadata(
+        self,
+        embedding_query: np.ndarray,
+        top_k: int = 5,
+        uid: Optional[str] = None,
+    ) -> Optional[List[Dict]]:
+        s = time.perf_counter()
+        cur_vector_nums = self.count_vectors()
+        if cur_vector_nums == 0:
+            return None, 0
+
+        if cur_vector_nums != self.vector_nums:
+            self.load_vectors(uid)
+
+        _, indexes = self.search_index.search(
+            embedding_query, min(top_k, cur_vector_nums)
+        )
+        top_index = indexes.squeeze().tolist()
+        if isinstance(top_index, int):
+            top_index = [top_index]
+
+        cur, _ = self.connect_db()
+        placeholders = ",".join(["?"] * len(top_index))
+        cur.execute(
+            f"""
+            select file_name, texts, chunk_id, doc_type, page_no, paragraph_no, section_title, uids
+            from {self.table_name}
+            where id in ({placeholders})
+            """,
+            [idx + 1 for idx in top_index],
+        )
+        rows = cur.fetchall()
+        row_map = {
+            row[2]: {
+                "file_name": row[0],
+                "text": row[1],
+                "chunk_id": row[2],
+                "doc_type": row[3],
+                "page_no": row[4],
+                "paragraph_no": row[5],
+                "section_title": row[6],
+                "uid": row[7],
+            }
+            for row in rows
+        }
+
+        results = []
+        for idx in top_index:
+            cur.execute(
+                f"""
+                select file_name, texts, chunk_id, doc_type, page_no, paragraph_no, section_title, uids
+                from {self.table_name}
+                where id=?
+                """,
+                (idx + 1,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                continue
+            results.append(
+                {
+                    "file_name": row[0],
+                    "text": row[1],
+                    "chunk_id": row[2],
+                    "doc_type": row[3],
+                    "page_no": row[4],
+                    "paragraph_no": row[5],
+                    "section_title": row[6],
+                    "uid": row[7],
+                }
+            )
+
+        elapse = time.perf_counter() - s
+        return results, elapse
+
     def get_files(self, uid: Optional[str] = None):
         cur, _ = self.connect_db()
 
-        if not uid:
-            return None
-
-        search_sql = (
-            f'select distinct file_name from {self.table_name} where uids="{uid}"'
-        )
-        cur.execute(search_sql)
+        if uid:
+            search_sql = (
+                f'select distinct file_name from {self.table_name} where uids="{uid}"'
+            )
+            cur.execute(search_sql)
+        else:
+            cur.execute(f"select distinct file_name from {self.table_name}")
         search_res = cur.fetchall()
         search_res = [v[0] for v in search_res]
         return search_res
+
+    def delete_file(self, file_name: str):
+        cur, con = self.connect_db()
+        cur.execute(f"delete from {self.table_name} where file_name=?", (file_name,))
+        con.commit()
+        self.vector_nums = 0
 
     def clear_db(
         self,

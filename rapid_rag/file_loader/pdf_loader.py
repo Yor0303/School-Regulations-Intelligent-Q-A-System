@@ -4,7 +4,10 @@
 from pathlib import Path
 from typing import List, Union
 
-from rapidocr_pdf import PDFExtracter
+try:
+    from rapidocr_pdf import PDFExtracter
+except ImportError:
+    from rapidocr_pdf import RapidOCRPDF as PDFExtracter
 
 from ..text_splitter.chinese_text_splitter import ChineseTextSplitter
 

@@ -16,7 +16,7 @@ from rapid_rag.file_loader import FileLoader
 from rapid_rag.utils import get_timestamp, logger, make_prompt, mkdir, read_yaml
 from rapid_rag.vector_utils import DBUtils
 
-config = read_yaml("knowledge_qa_llm/config.yaml")
+config = read_yaml("rapid_rag/config.yaml")
 
 st.set_page_config(
     page_title=config.get("title"),
@@ -58,7 +58,7 @@ def init_ui_parameters():
         min_value=param_temp.get("min_value"),
         max_value=param_temp.get("max_value"),
         value=param_temp.get("default"),
-        step=param_temp.get("stemp"),
+        step=param_temp.get("step"),
         help=param_temp.get("tip"),
     )
     st.session_state["params"]["temperature"] = temperature
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     db_path = config.get("vector_db_path")
     db_tools = DBUtils(db_path)
 
-    llm_module = importlib.import_module("knowledge_qa_llm.llm")
+    llm_module = importlib.import_module("rapid_rag.llm")
     llm_params: Dict[str, Dict] = config.get("LLM_API")
 
     menu_col1, menu_col2, menu_col3 = st.columns([1, 1, 1])

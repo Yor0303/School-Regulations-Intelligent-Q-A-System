@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#004098"      # 上海大学校徽蓝
+backgroundColor = "#FFFFFF"   # 白色背景
+secondaryBackgroundColor = "#F0F4FA"  # 浅蓝灰
+textColor = "#1A1A1A"         # 深灰文字
+font = "sans serif"

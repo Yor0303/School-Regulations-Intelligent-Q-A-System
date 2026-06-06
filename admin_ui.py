@@ -2,7 +2,13 @@ from pathlib import Path
 
 import streamlit as st
 
-from graph_engine import export_graph_html
+from graph_engine import (
+    export_graph_html,
+    export_graph_json,
+    find_graph_issues,
+    get_graph_stats,
+    refresh_graph_data,
+)
 from settings_manager import load_settings, save_settings
 from knowledge_base import KnowledgeBaseService
 
@@ -70,7 +76,29 @@ def render_admin_panel() -> None:
         else:
             st.info("当前知识库中还没有文件。")
 
-    with st.expander("图谱导出", expanded=False):
-        if st.button("生成规则图谱"):
+    with st.expander("规则图谱维护", expanded=False):
+        stats = get_graph_stats()
+        col1, col2, col3 = st.columns(3)
+        col1.metric("节点数", stats["nodes"])
+        col2.metric("关系数", stats["edges"])
+        col3.metric("规则类别", stats["categories"])
+
+        col1, col2, col3 = st.columns(3)
+        if col1.button("刷新图谱数据"):
+            data_path = refresh_graph_data()
+            st.success(f"图谱数据已刷新：{data_path}")
+            st.rerun()
+        if col2.button("导出 HTML"):
             output_path = export_graph_html()
             st.success(f"图谱已导出到 {output_path}")
+        if col3.button("导出 JSON"):
+            output_path = export_graph_json()
+            st.success(f"图谱数据已导出到 {output_path}")
+
+        issues = find_graph_issues()
+        if issues:
+            st.warning("发现需要检查的图谱数据：")
+            for issue in issues:
+                st.write(f"- {issue}")
+        else:
+            st.success("图谱节点和关系检查通过。")

@@ -1,14 +1,15 @@
 
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>Rule Graph</title>
+  <title>School Policy Rule Graph</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 24px; }
     h1 { margin-bottom: 8px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    ul { line-height: 1.6; }
+    ul { line-height: 1.7; }
+    small { color: #555; }
   </style>
 </head>
 <body>
@@ -17,13 +18,13 @@
     <section>
       <h2>Nodes</h2>
       <ul>
-        <li><strong>学生</strong> (role)</li><li><strong>课程未通过</strong> (result)</li><li><strong>补考</strong> (action)</li><li><strong>旷课</strong> (action)</li><li><strong>不得参加期末考核</strong> (result)</li><li><strong>缺考</strong> (action)</li><li><strong>零分</strong> (result)</li><li><strong>缓考</strong> (action)</li><li><strong>教务部审核</strong> (rule)</li><li><strong>考试违纪</strong> (action)</li><li><strong>无效</strong> (result)</li><li><strong>违纪课程</strong> (rule)</li><li><strong>学分0</strong> (result)</li><li><strong>计入绩点统计</strong> (rule)</li><li><strong>成绩</strong> (rule)</li><li><strong>绩点</strong> (rule)</li><li><strong>平均绩点</strong> (rule)</li>
+        <li><strong>学生</strong> (role)</li><li><strong>缓考</strong> (action)</li><li><strong>证明材料</strong> (material)</li><li><strong>缓考申请</strong> (action)</li><li><strong>教务部审核</strong> (rule)</li><li><strong>课程未通过</strong> (result)</li><li><strong>补考</strong> (action)</li><li><strong>重新修读</strong> (action)</li><li><strong>成绩</strong> (rule)</li><li><strong>绩点</strong> (rule)</li><li><strong>平均绩点</strong> (rule)</li><li><strong>旷课</strong> (action)</li><li><strong>不得参加期末考核</strong> (result)</li><li><strong>缺考</strong> (action)</li><li><strong>零分</strong> (result)</li><li><strong>考试违纪</strong> (action)</li><li><strong>成绩无效</strong> (result)</li><li><strong>纪律处分</strong> (result)</li><li><strong>宿舍违规用电</strong> (action)</li>
       </ul>
     </section>
     <section>
       <h2>Edges</h2>
       <ul>
-        <li>学生 -> 课程未通过 : 可能出现</li><li>学生 -> 旷课 : 可能发生</li><li>学生 -> 缺考 : 可能发生</li><li>学生 -> 缓考 : 可申请</li><li>学生 -> 考试违纪 : 可能发生</li><li>课程未通过 -> 补考 : 可参加</li><li>旷课 -> 不得参加期末考核 : 导致</li><li>缺考 -> 零分 : 记为</li><li>缓考 -> 教务部审核 : 需要</li><li>考试违纪 -> 无效 : 成绩标注</li><li>违纪课程 -> 学分0 : 记为</li><li>学分0 -> 计入绩点统计 : 影响</li><li>成绩 -> 绩点 : 影响</li><li>绩点 -> 平均绩点 : 组成</li>
+        <li>学生 -> 缓考 : 可申请<br><small>因病住院、急诊留院观察、直系亲属遭遇不可抗力事件或代表学校参加重大活动等情况，可以按规定申请缓考。 2025年本科生学生手册.pdf, page 84</small></li><li>学生 -> 旷课 : 可能发生<br><small>学生应遵守课堂考勤要求，旷课等行为会影响课程学习和考核。 2025年本科生学生手册.pdf</small></li><li>学生 -> 缺考 : 可能发生<br><small>学生应按规定参加考试，未按规定参加考试可能被视为缺考。 2025年本科生学生手册.pdf</small></li><li>学生 -> 考试违纪 : 可能发生<br><small>考试过程中使用手机、查阅答案、替考等行为属于考试违纪或作弊相关情形。 2025年本科生学生手册.pdf</small></li><li>缓考 -> 证明材料 : 需要<br><small>申请缓考时应按要求提交相关证明材料，并在考试前提出申请。 2025年本科生学生手册.pdf, page 84</small></li><li>缓考申请 -> 教务部审核 : 由<br><small>缓考申请需经教务部门审核同意，学生按规定时间参加缓考考试。 2025年本科生学生手册.pdf, page 84</small></li><li>课程未通过 -> 补考 : 可参加<br><small>课程成绩未通过时，应查询课程是否安排补考，并按学校规定参加补考或重新修读。 2025年本科生学生手册.pdf, page 83</small></li><li>课程未通过 -> 重新修读 : 可选择<br><small>课程未通过或绩点不足时，可通过补考、重修等方式改善课程成绩。 2025年本科生学生手册.pdf, page 83</small></li><li>成绩 -> 绩点 : 影响<br><small>课程成绩与绩点、平均绩点统计相关，重新修读课程的成绩会纳入平均绩点计算。 2025年本科生学生手册.pdf, page 83</small></li><li>绩点 -> 平均绩点 : 组成<br><small>平均绩点反映课程成绩的综合情况，相关课程成绩会参与统计。 2025年本科生学生手册.pdf, page 83</small></li><li>旷课 -> 不得参加期末考核 : 可能导致<br><small>课堂考勤违规达到规定情形时，可能影响课程考核资格。 2025年本科生学生手册.pdf</small></li><li>缺考 -> 零分 : 记为<br><small>缺考课程成绩通常按学校考试管理规定处理。 2025年本科生学生手册.pdf</small></li><li>考试违纪 -> 成绩无效 : 可能导致<br><small>考试违纪或作弊行为可能导致考试成绩无效，并依据情节给予纪律处分。 2025年本科生学生手册.pdf</small></li><li>考试违纪 -> 纪律处分 : 可能给予<br><small>学生违反考试纪律的，学校可根据情节轻重给予相应纪律处分。 2025年本科生学生手册.pdf</small></li><li>宿舍违规用电 -> 纪律处分 : 可能给予<br><small>学生社区住宿管理要求学生遵守用电安全规定，违规用电可能受到相应处理。 2025年本科生学生手册.pdf</small></li>
       </ul>
     </section>
   </div>

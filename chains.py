@@ -99,9 +99,9 @@ def build_qa_prompt(query: str, context: str, history_text: str = "") -> str:
         f"Current user question:\n{query}\n\n"
         f"Reference documents:\n{context}\n\n"
         "Answer format:\n"
-        "1. Conclusion: give a concise direct answer.\n"
-        "2. Basis: explain the relevant rules in plain language.\n"
-        "3. If the documents are not sufficient, explicitly state that the current documents only mention related handling rules.\n"
+        "1. 结论：给出简洁、直接的回答。\n"
+        "2. 依据：用通俗语言解释相关规定。\n"
+        "3. 补充说明：如果文档信息不足，请说明当前文档只提供了哪些相关规则。\n"
     )
 
 
@@ -115,19 +115,47 @@ def generate_answer(prompt: str) -> str:
     return response
 
 
-def format_sources(docs: List[Dict]) -> str:
-    if not docs:
-        return "Sources: none"
+def normalize_answer_headings(answer: str) -> str:
+    replacements = {
+        "Conclusion:": "结论：",
+        "Conclusion：": "结论：",
+        "Basis:": "依据：",
+        "Basis：": "依据：",
+        "Sources:": "来源：",
+        "Sources：": "来源：",
+        "Source:": "来源：",
+        "Source：": "来源：",
+        "If the documents are not sufficient": "补充说明",
+        "No clear supporting rule was found in the uploaded documents.": "未在已上传文档中找到明确依据。",
+    }
+    normalized = answer
+    for old, new in replacements.items():
+        normalized = normalized.replace(old, new)
+    return normalized
 
-    lines = ["Sources:"]
-    for index, doc in enumerate(docs, start=1):
+
+def unique_source_labels(docs: List[Dict]) -> List[str]:
+    labels = []
+    for doc in docs:
         source_label = doc.get("source_label", doc.get("file_name", "unknown"))
+        if source_label not in labels:
+            labels.append(source_label)
+    return labels
+
+
+def format_sources(docs: List[Dict]) -> str:
+    source_labels = unique_source_labels(docs)
+    if not source_labels:
+        return "来源：无"
+
+    lines = ["来源："]
+    for index, source_label in enumerate(source_labels, start=1):
         lines.append(f"{index}. {source_label}")
     return "\n".join(lines)
 
 
 def format_final_answer(answer: str, docs: List[Dict]) -> str:
-    clean_answer = answer.strip()
+    clean_answer = normalize_answer_headings(answer.strip())
     source_block = format_sources(docs)
     if clean_answer.endswith(source_block):
         return clean_answer

@@ -1,0 +1,152 @@
+[
+  {
+    "source": "学生",
+    "relation": "可申请",
+    "target": "缓考",
+    "category": "考试管理",
+    "evidence": "因病住院、急诊留院观察、直系亲属遭遇不可抗力事件或代表学校参加重大活动等情况，可以按规定申请缓考。",
+    "source_label": "2025年本科生学生手册.pdf, page 84",
+    "source_type": "role",
+    "target_type": "action"
+  },
+  {
+    "source": "缓考",
+    "relation": "需要",
+    "target": "证明材料",
+    "category": "考试管理",
+    "evidence": "申请缓考时应按要求提交相关证明材料，并在考试前提出申请。",
+    "source_label": "2025年本科生学生手册.pdf, page 84",
+    "source_type": "action",
+    "target_type": "material"
+  },
+  {
+    "source": "缓考申请",
+    "relation": "由",
+    "target": "教务部审核",
+    "category": "考试管理",
+    "evidence": "缓考申请需经教务部门审核同意，学生按规定时间参加缓考考试。",
+    "source_label": "2025年本科生学生手册.pdf, page 84",
+    "source_type": "action",
+    "target_type": "rule"
+  },
+  {
+    "source": "课程未通过",
+    "relation": "可参加",
+    "target": "补考",
+    "category": "学习管理",
+    "evidence": "课程成绩未通过时，应查询课程是否安排补考，并按学校规定参加补考或重新修读。",
+    "source_label": "2025年本科生学生手册.pdf, page 83",
+    "source_type": "result",
+    "target_type": "action"
+  },
+  {
+    "source": "课程未通过",
+    "relation": "可选择",
+    "target": "重新修读",
+    "category": "学习管理",
+    "evidence": "课程未通过或绩点不足时，可通过补考、重修等方式改善课程成绩。",
+    "source_label": "2025年本科生学生手册.pdf, page 83",
+    "source_type": "result",
+    "target_type": "action"
+  },
+  {
+    "source": "成绩",
+    "relation": "影响",
+    "target": "绩点",
+    "category": "学习管理",
+    "evidence": "课程成绩与绩点、平均绩点统计相关，重新修读课程的成绩会纳入平均绩点计算。",
+    "source_label": "2025年本科生学生手册.pdf, page 83",
+    "source_type": "rule",
+    "target_type": "rule"
+  },
+  {
+    "source": "绩点",
+    "relation": "组成",
+    "target": "平均绩点",
+    "category": "学习管理",
+    "evidence": "平均绩点反映课程成绩的综合情况，相关课程成绩会参与统计。",
+    "source_label": "2025年本科生学生手册.pdf, page 83",
+    "source_type": "rule",
+    "target_type": "rule"
+  },
+  {
+    "source": "学生",
+    "relation": "可能发生",
+    "target": "旷课",
+    "category": "课堂考勤",
+    "evidence": "学生应遵守课堂考勤要求，旷课等行为会影响课程学习和考核。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "role",
+    "target_type": "action"
+  },
+  {
+    "source": "旷课",
+    "relation": "可能导致",
+    "target": "不得参加期末考核",
+    "category": "课堂考勤",
+    "evidence": "课堂考勤违规达到规定情形时，可能影响课程考核资格。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "action",
+    "target_type": "result"
+  },
+  {
+    "source": "学生",
+    "relation": "可能发生",
+    "target": "缺考",
+    "category": "考试管理",
+    "evidence": "学生应按规定参加考试，未按规定参加考试可能被视为缺考。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "role",
+    "target_type": "action"
+  },
+  {
+    "source": "缺考",
+    "relation": "记为",
+    "target": "零分",
+    "category": "考试管理",
+    "evidence": "缺考课程成绩通常按学校考试管理规定处理。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "action",
+    "target_type": "result"
+  },
+  {
+    "source": "学生",
+    "relation": "可能发生",
+    "target": "考试违纪",
+    "category": "违纪处分",
+    "evidence": "考试过程中使用手机、查阅答案、替考等行为属于考试违纪或作弊相关情形。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "role",
+    "target_type": "action"
+  },
+  {
+    "source": "考试违纪",
+    "relation": "可能导致",
+    "target": "成绩无效",
+    "category": "违纪处分",
+    "evidence": "考试违纪或作弊行为可能导致考试成绩无效，并依据情节给予纪律处分。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "action",
+    "target_type": "result"
+  },
+  {
+    "source": "考试违纪",
+    "relation": "可能给予",
+    "target": "纪律处分",
+    "category": "违纪处分",
+    "evidence": "学生违反考试纪律的，学校可根据情节轻重给予相应纪律处分。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "action",
+    "target_type": "result"
+  },
+  {
+    "source": "宿舍违规用电",
+    "relation": "可能给予",
+    "target": "纪律处分",
+    "category": "宿舍管理",
+    "evidence": "学生社区住宿管理要求学生遵守用电安全规定，违规用电可能受到相应处理。",
+    "source_label": "2025年本科生学生手册.pdf",
+    "source_type": "action",
+    "target_type": "result"
+  }
+]

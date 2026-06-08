@@ -1,14 +1,21 @@
 # -*- encoding: utf-8 -*-
+import importlib
 import json
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import networkx as nx
 
+try:
+    from pyvis.network import Network as _PyVisNetwork
+    _HAS_PYVIS = True
+except ModuleNotFoundError:
+    _HAS_PYVIS = False
 
 GRAPH_DATA_PATH = Path("data/rule_graph/rule_graph.json")
 DEFAULT_HTML_PATH = Path("rule_graph.html")
+RECORD_PATH = Path("vector_db_data/handbook_chunks.json")
 
 
 def load_graph_seed_data() -> List[Dict]:
@@ -166,6 +173,293 @@ def load_graph_seed_data() -> List[Dict]:
     ]
 
 
+# ---------------------------------------------------------------------------
+#  LLM helpers
+# ---------------------------------------------------------------------------
+
+def _get_llm():
+    from rapid_rag.utils import read_yaml
+
+    config = read_yaml("rapid_rag/config.yaml")
+    llm_module = importlib.import_module("rapid_rag.llm")
+    llm_params: Dict[str, Dict] = config.get("LLM_API", {})
+
+    if "Ollama" in llm_params:
+        return getattr(llm_module, "Ollama")(**llm_params["Ollama"])
+
+    llm_name, params = next(iter(llm_params.items()))
+    return getattr(llm_module, llm_name)(**params)
+
+
+def _parse_json_from_llm(text: str) -> Optional[List[Dict]]:
+    """Try to extract a JSON array from LLM output (may be fenced)."""
+    if not text:
+        return None
+    text = text.strip()
+    # Try ```json ... ``` first
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if m:
+        text = m.group(1).strip()
+    # Try to find the outermost [ ... ]
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        text = text[start : end + 1]
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200) -> List[str]:
+    """Split long text into overlapping chunks of ~chunk_size characters."""
+    if len(text) <= chunk_size:
+        return [text]
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunks.append(text[start:end])
+        start += chunk_size - overlap
+    return chunks
+
+
+# ---------------------------------------------------------------------------
+#  LLM-powered triple extraction
+# ---------------------------------------------------------------------------
+
+EXTRACTION_PROMPT = """你是一个学校规章制度知识图谱构建助手。请仔细阅读以下学校制度文本，提取其中包含的**实体关系三元组**。
+
+每条三元组表示一个明确的规则事实，格式如下：
+- source: 主体/前提（如"学生"、"考试违纪"、"旷课"、"课程未通过"）
+- relation: 关系谓语（如"可申请"、"可能导致"、"需要"、"记为"、"影响"）
+- target: 客体/后果（如"缓考"、"成绩无效"、"纪律处分"、"补考"）
+- category: 所属类别（从以下选择：考试管理、学习管理、课堂考勤、违纪处分、宿舍管理、奖助学金、学籍管理、实习管理、其他）
+- evidence: 原文依据（直接从文本中摘录原句）
+- source_type: 主体类型（role/action/rule/result/material/scene）
+- target_type: 客体类型（role/action/rule/result/material/scene）
+
+重要要求：
+1. 只提取文本中明确陈述的规则关系，绝不编造
+2. 每条三元组必须能从原文中找到支撑
+3. 宁可少提取，不要编造不存在的关系
+4. 优先提取处罚、条件、流程、权利义务相关的关系
+5. evidence 字段必须摘录文本原句
+
+制度文本：
+{text}
+
+请严格以 JSON 数组格式返回，每个元素包含 source, relation, target, category, evidence, source_type, target_type 字段。
+不要输出任何 JSON 之外的解释文字。"""
+
+
+def extract_triples_with_llm(
+    text: str,
+    source_label: str = "",
+    max_chunks: int = 8,
+    progress_callback=None,
+) -> List[Dict]:
+    """Feed document text to LLM and extract knowledge-graph triples.
+
+    Args:
+        text: Raw document text.
+        source_label: Human-readable source label (e.g. filename + page).
+        max_chunks: Maximum number of text chunks to process.
+        progress_callback: Optional callable(step, total) for progress reporting.
+
+    Returns:
+        List of triple dicts with source/relation/target/category/evidence/…
+    """
+    llm = _get_llm()
+    chunks = _chunk_text(text, chunk_size=2000, overlap=200)
+    chunks = chunks[:max_chunks]
+
+    all_triples: List[Dict] = []
+    for idx, chunk in enumerate(chunks):
+        if progress_callback:
+            progress_callback(idx, len(chunks))
+        prompt = EXTRACTION_PROMPT.format(text=chunk)
+        try:
+            raw = llm(prompt)
+            parsed = _parse_json_from_llm(raw)
+            if parsed:
+                for item in parsed:
+                    if isinstance(item, dict) and item.get("source") and item.get("target"):
+                        item.setdefault("source_label", source_label)
+                        item.setdefault("category", "其他")
+                        item.setdefault("source_type", "rule")
+                        item.setdefault("target_type", "rule")
+                        all_triples.append(item)
+        except Exception:
+            continue
+
+    if progress_callback:
+        progress_callback(len(chunks), len(chunks))
+    return all_triples
+
+
+def auto_build_graph_from_docs(
+    record_path: Optional[Path] = None,
+    max_chunks_per_file: int = 6,
+    progress_callback=None,
+) -> List[Dict]:
+    """Read all document chunks from the record JSON, extract triples via LLM,
+    merge with existing graph data, and persist.
+
+    Returns the merged triple list.
+    """
+    record_path = Path(record_path) if record_path else RECORD_PATH
+    if not record_path.exists():
+        raise FileNotFoundError(f"Record file not found: {record_path}")
+
+    all_records = json.loads(record_path.read_text(encoding="utf-8"))
+
+    # Group by file_name
+    file_groups: Dict[str, List[Dict]] = {}
+    for rec in all_records:
+        fname = rec.get("file_name", "unknown")
+        file_groups.setdefault(fname, []).append(rec)
+
+    existing = load_graph_data()
+    existing_keys = {
+        (item.get("source"), item.get("relation"), item.get("target"))
+        for item in existing
+    }
+
+    new_triples: List[Dict] = []
+    file_names = list(file_groups.keys())
+    for file_idx, (fname, recs) in enumerate(file_groups.items()):
+        # Merge chunks into page-ordered full text
+        recs_sorted = sorted(
+            recs,
+            key=lambda r: (r.get("page_no") or 0, r.get("paragraph_no") or 0),
+        )
+        full_text = "\n\n".join(
+            r.get("text", "") for r in recs_sorted if r.get("text")
+        )
+        if not full_text.strip():
+            continue
+
+        source_label = fname
+
+        def file_progress(step, total):
+            if progress_callback:
+                progress_callback(file_idx, len(file_names), fname, step, total)
+
+        triples = extract_triples_with_llm(
+            full_text,
+            source_label=source_label,
+            max_chunks=max_chunks_per_file,
+            progress_callback=file_progress,
+        )
+
+        for triple in triples:
+            key = (
+                triple.get("source"),
+                triple.get("relation"),
+                triple.get("target"),
+            )
+            if key not in existing_keys:
+                existing_keys.add(key)
+                new_triples.append(triple)
+
+    if new_triples:
+        merged = existing + new_triples
+        save_graph_data(merged)
+        return merged
+    return existing
+
+
+# ---------------------------------------------------------------------------
+#  LLM-powered semantic graph search
+# ---------------------------------------------------------------------------
+
+SEARCH_PROMPT = """你是一个学校规章制度知识图谱查询助手。以下是知识图谱中存储的规则三元组，每行格式为：
+[主体] --关系--> [客体] | 类别：xxx | 依据：xxx
+
+{triples}
+
+用户问题：{query}
+
+请找出与用户问题最相关的规则链（1-5条），对于每条规则链：
+1. 说明主体、关系、客体
+2. 解释为什么这条规则与用户问题相关
+3. 如果多条规则可以串联成因果链（A→B→C），请描述完整推理路径
+
+以 JSON 数组格式返回：
+[{{"source": "...", "relation": "...", "target": "...", "relevance": "相关原因", "chain": "因果链说明（如有）"}}]
+
+只返回 JSON，不要其他文字。"""
+
+
+def search_graph_with_llm(
+    query: str,
+    records: Optional[List[Dict]] = None,
+) -> List[Dict]:
+    """Semantically search the knowledge graph using LLM reasoning.
+
+    Pre-filters with keyword matching to stay within context limits,
+    then lets the LLM identify relevant chains and multi-hop paths.
+    """
+    if not query or not query.strip():
+        return []
+
+    records = records if records is not None else load_graph_data()
+    if not records:
+        return []
+
+    # Pre-filter: if graph is large, reduce to keyword-relevant subset
+    if len(records) > 30:
+        records = filter_graph_records(query, records)
+
+    triples_text = "\n".join(
+        f"[{item.get('source', '')}] --{item.get('relation', '')}--> [{item.get('target', '')}] "
+        f"| 类别：{item.get('category', '')} | 依据：{item.get('evidence', '')[:80]}"
+        for item in records
+    )
+
+    llm = _get_llm()
+    prompt = SEARCH_PROMPT.format(triples=triples_text, query=query)
+    try:
+        raw = llm(prompt)
+        parsed = _parse_json_from_llm(raw)
+        if parsed and isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+    except Exception:
+        pass
+    return []
+
+
+def get_graph_context_for_query(
+    query: str,
+    max_items: int = 5,
+) -> str:
+    """Build a concise graph-context string for injection into the Q&A prompt."""
+    related = search_graph_with_llm(query)
+    if not related:
+        return ""
+
+    lines = ["[知识图谱规则链]"]
+    for idx, item in enumerate(related[:max_items], start=1):
+        chain = item.get("chain", "")
+        source = item.get("source", "")
+        relation = item.get("relation", "")
+        target = item.get("target", "")
+        relevance = item.get("relevance", "")
+
+        line = f"{idx}. {source} → {target}（{relation}）"
+        if chain:
+            line += f"  因果链：{chain}"
+        if relevance:
+            line += f"  关联说明：{relevance}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+#  Persistence
+# ---------------------------------------------------------------------------
+
 def ensure_graph_data(path: Path = GRAPH_DATA_PATH) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
@@ -183,13 +477,19 @@ def load_graph_data(path: Path = GRAPH_DATA_PATH) -> List[Dict]:
 
 def save_graph_data(records: List[Dict], path: Path = GRAPH_DATA_PATH) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return path
 
 
 def refresh_graph_data(path: Path = GRAPH_DATA_PATH) -> Path:
     return save_graph_data(load_graph_seed_data(), path)
 
+
+# ---------------------------------------------------------------------------
+#  Graph construction
+# ---------------------------------------------------------------------------
 
 def extract_graph_elements(records: List[Dict] | None = None) -> Dict:
     records = records if records is not None else load_graph_data()
@@ -244,7 +544,13 @@ def build_rule_graph(graph_data: Dict):
     return graph
 
 
-def filter_graph_records(keyword: str = "", records: List[Dict] | None = None) -> List[Dict]:
+# ---------------------------------------------------------------------------
+#  Keyword-based search & scoring (kept as pre-filter / fallback)
+# ---------------------------------------------------------------------------
+
+def filter_graph_records(
+    keyword: str = "", records: List[Dict] | None = None
+) -> List[Dict]:
     records = records if records is not None else load_graph_data()
     query_terms = _extract_query_terms(keyword)
     if not query_terms:
@@ -260,15 +566,25 @@ def filter_graph_records(keyword: str = "", records: List[Dict] | None = None) -
     return [item for _, item in scored_records]
 
 
+# ---------------------------------------------------------------------------
+#  Stats & validation
+# ---------------------------------------------------------------------------
+
 def get_graph_stats(records: List[Dict] | None = None) -> Dict:
     records = records if records is not None else load_graph_data()
     graph_data = extract_graph_elements(records)
     return {
         "nodes": len(graph_data["nodes"]),
         "edges": len(graph_data["edges"]),
-        "categories": len({item.get("category", "") for item in records if item.get("category")}),
-        "missing_evidence": sum(1 for item in records if not item.get("evidence")),
-        "missing_source": sum(1 for item in records if not item.get("source_label")),
+        "categories": len(
+            {item.get("category", "") for item in records if item.get("category")}
+        ),
+        "missing_evidence": sum(
+            1 for item in records if not item.get("evidence")
+        ),
+        "missing_source": sum(
+            1 for item in records if not item.get("source_label")
+        ),
     }
 
 
@@ -279,7 +595,9 @@ def find_graph_issues(records: List[Dict] | None = None) -> List[str]:
     for index, item in enumerate(records, start=1):
         key = (item.get("source"), item.get("relation"), item.get("target"))
         if key in seen:
-            issues.append(f"第 {index} 条关系重复：{item.get('source')} -> {item.get('target')}")
+            issues.append(
+                f"第 {index} 条关系重复：{item.get('source')} -> {item.get('target')}"
+            )
         seen.add(key)
         if not item.get("evidence"):
             issues.append(f"第 {index} 条关系缺少依据说明。")
@@ -294,103 +612,139 @@ def get_related_rule_chains(query: str, max_items: int = 4) -> List[Dict]:
 
 
 def format_rule_chain(item: Dict) -> str:
-    return f"{item.get('source', '')} -> {item.get('target', '')}：{item.get('relation', '')}"
+    return (
+        f"{item.get('source', '')} → {item.get('target', '')}"
+        f"：{item.get('relation', '')}"
+    )
 
 
-def render_graph_html(graph, output_path: str | Path = DEFAULT_HTML_PATH) -> str:
-    output_path = str(output_path)
-    try:
-        from pyvis.network import Network
+# ---------------------------------------------------------------------------
+#  Visualization
+# ---------------------------------------------------------------------------
 
-        net = Network(height="720px", width="100%", directed=True)
-        color_map = {
-            "role": "#2563eb",
-            "action": "#dc2626",
-            "rule": "#16a34a",
-            "result": "#ca8a04",
-            "scene": "#7c3aed",
-            "material": "#0891b2",
-        }
-
-        for node_id, attrs in graph.nodes(data=True):
-            node_type = attrs.get("node_type", "rule")
-            title = f"类型：{node_type}<br>类别：{attrs.get('category', '')}"
-            net.add_node(
-                node_id,
-                label=attrs.get("label", node_id),
-                title=title,
-                color=color_map.get(node_type, "#4b5563"),
-            )
-
-        for source, target, attrs in graph.edges(data=True):
-            title = "<br>".join(
-                part
-                for part in [
-                    attrs.get("label", ""),
-                    attrs.get("evidence", ""),
-                    attrs.get("source_label", ""),
-                ]
-                if part
-            )
-            net.add_edge(source, target, label=attrs.get("label", ""), title=title)
-
-        net.write_html(output_path)
-        return output_path
-    except ModuleNotFoundError:
-        html = _render_basic_html(graph)
-        Path(output_path).write_text(html, encoding="utf-8")
-        return output_path
+COLOR_MAP = {
+    "role": "#7CA3C8",
+    "action": "#D4918E",
+    "rule": "#8AAA9A",
+    "result": "#C9B884",
+    "scene": "#A99BB4",
+    "material": "#8AABAD",
+}
 
 
-def _render_basic_html(graph) -> str:
+def _build_pyvis_html(graph, height: str = "600px") -> str:
+    """Build PyVis HTML and return it as a string (instead of writing to file)."""
+    if not _HAS_PYVIS:
+        raise ModuleNotFoundError("pyvis not installed")
+
+    net = _PyVisNetwork(height=height, width="100%", directed=True)
+
+    for node_id, attrs in graph.nodes(data=True):
+        node_type = attrs.get("node_type", "rule")
+        title = f"类型：{node_type}<br>类别：{attrs.get('category', '')}"
+        net.add_node(
+            node_id,
+            label=attrs.get("label", node_id),
+            title=title,
+            color=COLOR_MAP.get(node_type, "#4b5563"),
+        )
+
+    for source, target, attrs in graph.edges(data=True):
+        title = "<br>".join(
+            part
+            for part in [
+                attrs.get("label", ""),
+                attrs.get("evidence", ""),
+                attrs.get("source_label", ""),
+            ]
+            if part
+        )
+        net.add_edge(source, target, label=attrs.get("label", ""), title=title)
+
+    return net.generate_html()
+
+
+def _build_fallback_html(graph, error: str = "") -> str:
+    """Minimal HTML fallback when PyVis is not installed."""
+    err_html = ""
+    if error:
+        err_html = (
+            '<div style="background:#FFF3CD;border:1px solid #FFC107;'
+            'padding:12px;margin-bottom:16px;border-radius:8px;">'
+            '<strong>PyVis error:</strong> ' + error + '</div>'
+        )
     node_items = []
     edge_items = []
     for node_id, attrs in graph.nodes(data=True):
         node_items.append(
-            f"<li><strong>{attrs.get('label', node_id)}</strong> ({attrs.get('node_type', 'rule')})</li>"
+            "<li><strong>" + str(attrs.get('label', node_id)) + "</strong>"
+            " (" + str(attrs.get('node_type', 'rule')) + ")</li>"
         )
     for source, target, attrs in graph.edges(data=True):
         evidence = attrs.get("evidence", "")
         source_label = attrs.get("source_label", "")
-        detail = f"<br><small>{evidence} {source_label}</small>" if evidence or source_label else ""
-        edge_items.append(f"<li>{source} -> {target} : {attrs.get('label', '')}{detail}</li>")
+        detail = ""
+        if evidence or source_label:
+            detail = "<br><small>" + str(evidence) + " " + str(source_label) + "</small>"
+        edge_items.append(
+            "<li>" + str(source) + " -> " + str(target)
+            + " : " + str(attrs.get('label', '')) + detail + "</li>"
+        )
 
-    return f"""
-<!doctype html>
+    html = """<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <title>School Policy Rule Graph</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 24px; }}
-    h1 {{ margin-bottom: 8px; }}
-    .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }}
-    ul {{ line-height: 1.7; }}
-    small {{ color: #555; }}
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    h1 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    ul { line-height: 1.7; }
+    small { color: #555; }
   </style>
 </head>
 <body>
-  <h1>School Policy Rule Graph</h1>
-  <div class="grid">
-    <section>
-      <h2>Nodes</h2>
-      <ul>
-        {''.join(node_items)}
-      </ul>
-    </section>
-    <section>
-      <h2>Edges</h2>
-      <ul>
-        {''.join(edge_items)}
-      </ul>
-    </section>
+  <h1>校规知识图谱</h1>
+"""
+    if err_html:
+        html += err_html
+    html += """  <div class="grid">
+    <section><h2>节点</h2><ul>"""
+    html += "".join(node_items)
+    html += """</ul></section>
+    <section><h2>关系</h2><ul>"""
+    html += "".join(edge_items)
+    html += """</ul></section>
   </div>
 </body>
-</html>
-"""
+</html>"""
+    return html
 
 
-def export_graph_html(output_path: str | Path = DEFAULT_HTML_PATH, keyword: str = "") -> str:
+def render_graph_html_content(graph, height: str = "600px") -> str:
+    """Return standalone HTML string of the interactive graph for embedding."""
+    try:
+        return _build_pyvis_html(graph, height=height)
+    except ModuleNotFoundError:
+        return _build_fallback_html(graph)
+    except Exception as exc:
+        return _build_fallback_html(graph, error=str(exc))
+
+
+def render_graph_html(
+    graph, output_path: str | Path = DEFAULT_HTML_PATH
+) -> str:
+    """Render graph to an HTML file. Returns the output path."""
+    output_path = str(output_path)
+    html = render_graph_html_content(graph)
+    Path(output_path).write_text(html, encoding="utf-8")
+    return output_path
+
+
+def export_graph_html(
+    output_path: str | Path = DEFAULT_HTML_PATH, keyword: str = ""
+) -> str:
     records = filter_graph_records(keyword)
     graph_data = extract_graph_elements(records)
     graph = build_rule_graph(graph_data)
@@ -406,30 +760,24 @@ def export_graph_json(output_path: str | Path = "rule_graph.json") -> str:
     return str(output_path)
 
 
+# ---------------------------------------------------------------------------
+#  Keyword helpers (internal)
+# ---------------------------------------------------------------------------
+
 def _extract_query_terms(text: str) -> List[str]:
     text = (text or "").strip()
     if not text:
         return []
 
     domain_terms = [
-        "缓考",
-        "补考",
-        "重修",
-        "绩点",
-        "成绩",
-        "考试",
-        "违纪",
-        "作弊",
-        "缺考",
-        "旷课",
-        "宿舍",
-        "用电",
-        "处分",
-        "证明",
-        "审核",
+        "缓考", "补考", "重修", "绩点", "成绩", "考试",
+        "违纪", "作弊", "缺考", "旷课", "宿舍", "用电",
+        "处分", "证明", "审核",
     ]
     terms = [term for term in domain_terms if term in text]
-    terms.extend(token for token in re.split(r"[，。！？、\s]+", text) if len(token) >= 2)
+    terms.extend(
+        token for token in re.split(r"[，。！？、\s]+", text) if len(token) >= 2
+    )
 
     deduped = []
     for term in terms:
@@ -448,7 +796,10 @@ def _score_graph_record(item: Dict, query_terms: List[str]) -> int:
     title_text = f"{source} {relation} {target} {category}"
     full_text = f"{title_text} {evidence} {source_label}"
 
-    strong_terms = {"作弊", "违纪", "处分", "宿舍", "用电", "绩点", "补考", "重修", "缓考", "缺考", "旷课"}
+    strong_terms = {
+        "作弊", "违纪", "处分", "宿舍", "用电", "绩点",
+        "补考", "重修", "缓考", "缺考", "旷课",
+    }
     weak_terms = {"考试", "学生", "处理", "怎么办", "怎么"}
     has_strong_query = any(term in strong_terms for term in query_terms)
 
@@ -461,18 +812,27 @@ def _score_graph_record(item: Dict, query_terms: List[str]) -> int:
         elif term in full_text:
             score += 3 if term in strong_terms else 1
 
-    # Common user wording maps to the policy graph's normalized nodes.
     if (
         "作弊" in query_terms
         and category == "违纪处分"
-        and ("考试违纪" in title_text or "成绩无效" in title_text or "纪律处分" in title_text)
+        and (
+            "考试违纪" in title_text
+            or "成绩无效" in title_text
+            or "纪律处分" in title_text
+        )
     ):
         score += 12
-    if "违规" in query_terms and ("宿舍违规用电" in title_text or "纪律处分" in title_text):
+    if "违规" in query_terms and (
+        "宿舍违规用电" in title_text or "纪律处分" in title_text
+    ):
         score += 8
     if "缓考" in query_terms and "缓考" in title_text:
         score += 10
-    if "绩点" in query_terms and category == "学习管理" and ("绩点" in title_text or "成绩" in title_text):
+    if (
+        "绩点" in query_terms
+        and category == "学习管理"
+        and ("绩点" in title_text or "成绩" in title_text)
+    ):
         score += 10
 
     if all(term in weak_terms for term in query_terms):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import admin_ui
 import chains
+import graph_engine
 import knowledge_base.kb_service as kb_service_module
 import rapid_rag.encoder.sentence_transformer as sentence_transformer_module
 import user_ui
@@ -13,8 +14,10 @@ from auth import ensure_auth_state, login_admin, logout_admin
 from settings_manager import load_settings
 
 # Streamlit 会缓存已 import 的模块；热更新后避免 UI/检索仍跑旧代码。
+# 注意：依赖顺序很重要 — graph_engine 必须在 chains 之前重载。
 importlib.reload(sentence_transformer_module)
 importlib.reload(kb_service_module)
+importlib.reload(graph_engine)
 importlib.reload(chains)
 importlib.reload(user_ui)
 importlib.reload(admin_ui)

@@ -42,7 +42,6 @@ Encoder:
     access_token: your_token
   m3e-small:
     model_path: assets/models/m3e-small
-    device: auto
 
 SENTENCE_SIZE: 200
 top_k: 5

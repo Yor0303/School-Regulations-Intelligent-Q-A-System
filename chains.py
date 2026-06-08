@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from knowledge_base import KnowledgeBaseService
 from knowledge_base.memory import ConversationMemory
 from rapid_rag.utils import read_yaml
+from graph_engine import get_graph_context_for_query
 
 
 CONFIG_PATH = "rapid_rag/config.yaml"
@@ -80,8 +81,16 @@ def extract_query_keywords(query: str) -> List[str]:
     return keywords
 
 
-def build_qa_prompt(query: str, context: str, history_text: str = "") -> str:
+def build_qa_prompt(query: str, context: str, history_text: str = "", graph_context: str = "") -> str:
     history_block = history_text.strip() or "No prior conversation."
+
+    graph_block = ""
+    if graph_context:
+        graph_block = (
+            "\n\nStructured rule-graph relationships (for reference):\n"
+            f"{graph_context}\n"
+        )
+
     return (
         "You are a university policy consultation assistant.\n"
         "IMPORTANT: All responses MUST be written in Simplified Chinese.\n"
@@ -92,10 +101,12 @@ def build_qa_prompt(query: str, context: str, history_text: str = "") -> str:
         "Only use the most relevant rules. Ignore weakly related excerpts.\n"
         "Do not turn a rule about high GPA benefits into advice for low GPA recovery.\n"
         "If the documents mention score handling or makeup exams but do not mention GPA recovery directly, say that clearly.\n"
+        "When the structured rule-graph relationships are provided, use them to understand the logical connections between rules, but always ground your final answer in the reference documents.\n"
         "Use a calm, formal consultation tone.\n"
         "Do not mention source numbers such as [Source 1] or [Source 2] in the answer.\n"
         "Do not invent policies, procedures, or conclusions that are not supported by the documents.\n\n"
-        f"Conversation history:\n{history_block}\n\n"
+        f"Conversation history:\n{history_block}\n"
+        f"{graph_block}\n"
         f"Current user question:\n{query}\n\n"
         f"Reference documents:\n{context}\n\n"
         "Answer format:\n"
@@ -179,7 +190,14 @@ def answer_question(
     history_text = memory.format_history() if memory is not None else ""
     filtered_docs = filter_relevant_docs(query, docs, max_docs=min(top_k, 2))
     context = build_context(filtered_docs)
-    prompt = build_qa_prompt(query, context, history_text)
+
+    graph_context = ""
+    try:
+        graph_context = get_graph_context_for_query(query, max_items=3)
+    except Exception:
+        pass
+
+    prompt = build_qa_prompt(query, context, history_text, graph_context)
     answer = generate_answer(prompt)
     final_answer = format_final_answer(answer, filtered_docs)
 

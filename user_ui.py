@@ -2,10 +2,15 @@ import streamlit as st
 
 from chains import answer_question
 from graph_engine import (
+    build_rule_graph,
     export_graph_html,
+    extract_graph_elements,
     filter_graph_records,
     format_rule_chain,
     get_graph_stats,
+    load_graph_data,
+    render_graph_html_content,
+    search_graph_with_llm,
 )
 from knowledge_base.memory import ConversationMemory
 from knowledge_base.violation_checker import judge_violation
@@ -165,28 +170,65 @@ def render_user_panel() -> None:
 
     with tabs[2]:
         st.subheader("校园规则知识图谱")
-        stats = get_graph_stats()
+
+        records = load_graph_data()
+        stats = get_graph_stats(records)
         col1, col2, col3 = st.columns(3)
         col1.metric("节点数", stats["nodes"])
         col2.metric("关系数", stats["edges"])
         col3.metric("规则类别", stats["categories"])
 
+        # --- Interactive graph visualization ---
+        graph_data = extract_graph_elements(records)
+        graph = build_rule_graph(graph_data)
+        graph_html = render_graph_html_content(graph, height="520px")
+
+        with st.expander("交互式图谱", expanded=True):
+            st.components.v1.html(graph_html, height=540, scrolling=True)
+
+        # --- Search ---
+        st.markdown("#### 规则检索")
+        search_mode = st.radio(
+            "检索模式",
+            ["关键词匹配", "LLM 语义推理"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
         keyword = st.text_input(
             "搜索规则主题",
-            placeholder="例如：缓考、绩点、考试违纪、宿舍用电",
+            placeholder="例如：缓考怎么申请、作弊会有什么后果、宿舍违规怎么处理",
+            key="graph_search_input",
         )
-        related_records = filter_graph_records(keyword)
-        graph_path = export_graph_html(keyword=keyword)
 
-        st.markdown("#### 相关规则链")
-        if related_records:
-            for item in related_records:
-                with st.expander(format_rule_chain(item), expanded=False):
-                    st.write(item.get("evidence", "暂无依据说明。"))
-                    st.caption(f"类别：{item.get('category', '未分类')}")
-                    st.caption(f"来源：{item.get('source_label', '暂无来源')}")
-        else:
-            st.info("未找到相关规则链。")
+        if keyword:
+            if search_mode == "LLM 语义推理":
+                with st.spinner("LLM 正在分析知识图谱..."):
+                    llm_results = search_graph_with_llm(keyword, records)
+                if llm_results:
+                    st.caption(f"LLM 推理结果（共 {len(llm_results)} 条）")
+                    for idx, item in enumerate(llm_results):
+                        chain_text = item.get("chain", "")
+                        with st.container(border=True):
+                            st.markdown(
+                                f"**{item.get('source', '?')}**"
+                                f" → **{item.get('target', '?')}**"
+                                f"（{item.get('relation', '')}）"
+                            )
+                            if chain_text:
+                                st.caption(f"推理链：{chain_text}")
+                            st.caption(f"关联说明：{item.get('relevance', '')}")
+                else:
+                    st.info("LLM 未找到明确关联的规则链，请尝试其他关键词。")
 
-        st.markdown("#### 图谱文件")
-        st.code(graph_path)
+            # Always show keyword-matched records below
+            related_records = filter_graph_records(keyword, records)
+            if related_records:
+                st.markdown("##### 规则详情")
+                for item in related_records:
+                    with st.expander(format_rule_chain(item), expanded=False):
+                        st.write(item.get("evidence", "暂无依据说明。"))
+                        st.caption(f"类别：{item.get('category', '未分类')}")
+                        st.caption(f"来源：{item.get('source_label', '暂无来源')}")
+            elif search_mode == "关键词匹配":
+                st.info("未找到相关规则链。")

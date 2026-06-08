@@ -1,5 +1,4 @@
 # -*- encoding: utf-8 -*-
-import importlib
 import inspect
 import json
 import re
@@ -41,10 +40,7 @@ class KnowledgeBaseService:
         mkdir(self.record_path.parent)
 
     def _init_encoder(self):
-        from rapid_rag.encoder import sentence_transformer
-
-        importlib.reload(sentence_transformer)
-        encode_cls = sentence_transformer.EncodeText
+        from rapid_rag.encoder.sentence_transformer import EncodeText as encode_cls
 
         encoder_params = self.config.get("Encoder", {})
         batch_size = int(self.config.get("encoder_batch_size", 16))

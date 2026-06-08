@@ -29,6 +29,7 @@ DEFAULT_PROMPT: |
   $context
 
 default_handbook: 2025年本科生学生手册.pdf
+materials_dir: materials
 upload_dir: data/uploads
 vector_db_path: data/vector_db/school_rules.db
 record_path: vector_db_data/handbook_chunks.json
@@ -41,6 +42,7 @@ Encoder:
     access_token: your_token
   m3e-small:
     model_path: assets/models/m3e-small
+    device: auto
 
 SENTENCE_SIZE: 200
 top_k: 5

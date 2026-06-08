@@ -43,51 +43,107 @@ def _build_conversation_turns(history):
 def _submit_question(query: str) -> None:
     with st.spinner("正在检索相关制度并生成回答..."):
         answer_question(query, memory=st.session_state["conversation_memory"])
+    st.rerun()
+
+
+def _inject_home_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stVerticalBlockBorderWrapper"]:has([data-testid="stMarkdownContainer"] .shu-hot-marker) {
+            background: #FAFBFC;
+            border: 1px solid #E2E8F0 !important;
+            border-radius: 12px !important;
+            padding: 0.5rem 0.75rem 0.75rem 0.75rem !important;
+            margin-bottom: 0.75rem;
+            box-shadow: none;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has([data-testid="stMarkdownContainer"] .shu-hot-marker) button[kind="secondary"] {
+            background: #FFFFFF !important;
+            color: #334155 !important;
+            border: 1px solid #E2E8F0 !important;
+            border-left: 3px solid #004098 !important;
+            border-radius: 8px !important;
+            padding: 0.45rem 0.65rem !important;
+            min-height: 2.4rem !important;
+            height: auto !important;
+            font-size: 0.86rem !important;
+            font-weight: 500 !important;
+            line-height: 1.4 !important;
+            white-space: normal !important;
+            text-align: left !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has([data-testid="stMarkdownContainer"] .shu-hot-marker) button[kind="secondary"]:hover {
+            color: #004098 !important;
+            background: #F8FAFC !important;
+            border-color: #B8C9E0 !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.shu-chat-marker) {
+            background: #FFFFFF;
+            border: 1px solid #D8E2F0 !important;
+            border-radius: 16px !important;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_user_panel() -> None:
+    _inject_home_styles()
+
     settings = load_settings()
     if settings.get("bot_name"):
-        st.markdown(f"**{settings['bot_name']}**")
+        st.markdown(f"### {settings['bot_name']}")
     if settings.get("bot_avatar"):
         st.image(settings["bot_avatar"], width=96)
 
     if "conversation_memory" not in st.session_state:
         st.session_state["conversation_memory"] = ConversationMemory()
 
-    st.subheader("校园制度分类")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.info("学籍管理")
-    with col2:
-        st.info("考试管理")
-    with col3:
-        st.info("宿舍管理")
-    with col4:
-        st.info("奖助学金")
-    with col5:
-        st.info("违纪处分")
-
-    st.subheader("热门咨询")
-    cols = st.columns(3)
-    for index, question in enumerate(EXAMPLE_QUESTIONS):
-        with cols[index % 3]:
-            if st.button(question, key=f"example_question_{index}", use_container_width=True):
-                _submit_question(question)
+    st.caption(
+        "知识库涵盖：学籍管理 · 考试管理 · 宿舍管理 · 奖助学金 · 违纪处分"
+    )
 
     tabs = st.tabs(["智能问答", "违规判定", "规则图谱"])
 
     with tabs[0]:
+        history = st.session_state["conversation_memory"].get_history()
+        turns = _build_conversation_turns(history)
+
+        with st.container(height=460, border=True, autoscroll=True):
+            st.markdown('<span class="shu-chat-marker"></span>', unsafe_allow_html=True)
+            if not turns:
+                st.markdown(
+                    "<p style='color:#94A3B8;text-align:center;margin:4rem 0 0;'>"
+                    "在下方输入框或热门咨询中提问，对话会显示在这里</p>",
+                    unsafe_allow_html=True,
+                )
+            for turn in turns:
+                for message in turn:
+                    with st.chat_message(message["role"]):
+                        st.write(message["content"])
+
+        st.caption("热门咨询")
+        with st.container(border=True):
+            st.markdown('<span class="shu-hot-marker"></span>', unsafe_allow_html=True)
+            cols = st.columns(3, gap="small")
+            for index, question in enumerate(EXAMPLE_QUESTIONS):
+                with cols[index % 3]:
+                    if st.button(
+                        question,
+                        key=f"example_question_{index}",
+                        use_container_width=True,
+                        type="secondary",
+                    ):
+                        _submit_question(question)
+
         query = st.chat_input("请输入学校制度相关问题")
         if query:
             _submit_question(query)
-
-        history = st.session_state["conversation_memory"].get_history()
-        turns = _build_conversation_turns(history)
-        for turn in turns:
-            for message in turn:
-                with st.chat_message(message["role"]):
-                    st.write(message["content"])
 
     with tabs[1]:
         st.warning(

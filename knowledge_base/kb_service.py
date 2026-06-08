@@ -1,4 +1,6 @@
 # -*- encoding: utf-8 -*-
+import importlib
+import inspect
 import json
 import re
 import shutil
@@ -7,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-from rapid_rag.file_loader.office_loader import OfficeLoader
 from rapid_rag.file_loader.pdf_loader import PDFLoader
 from rapid_rag.file_loader.txt_loader import TXTLoader
 from rapid_rag.utils import mkdir, read_yaml
@@ -29,7 +30,7 @@ class KnowledgeBaseService:
         self.encoder = None
         self.db = DBUtils(self.vector_db_path)
         self.pdf_loader = PDFLoader()
-        self.office_loader = OfficeLoader()
+        self.office_loader = None
         self.txt_loader = TXTLoader()
         self.min_chunk_length = 20
         self.chunk_merge_target = max(
@@ -40,13 +41,24 @@ class KnowledgeBaseService:
         mkdir(self.record_path.parent)
 
     def _init_encoder(self):
-        from rapid_rag.encoder import EncodeText
+        from rapid_rag.encoder import sentence_transformer
+
+        importlib.reload(sentence_transformer)
+        encode_cls = sentence_transformer.EncodeText
 
         encoder_params = self.config.get("Encoder", {})
+        batch_size = int(self.config.get("encoder_batch_size", 16))
         for model_name, params in encoder_params.items():
             if model_name == "ERNIEBot":
                 continue
-            return EncodeText(**params)
+            init_kwargs = {"batch_size": batch_size, **dict(params)}
+            supported = inspect.signature(encode_cls.__init__).parameters
+            filtered = {
+                key: value
+                for key, value in init_kwargs.items()
+                if key in supported
+            }
+            return encode_cls(**filtered)
         raise RuntimeError("No local encoder configuration found.")
 
     def _get_encoder(self):
@@ -61,27 +73,36 @@ class KnowledgeBaseService:
 
     def add_documents(self, file_paths: List[str]) -> List[Dict]:
         stored_records = []
+        encoder = self._get_encoder()
         for file_path in file_paths:
-            source_path = Path(file_path)
-            target_path = self.upload_dir / source_path.name
-            if source_path.resolve() != target_path.resolve():
-                shutil.copy2(source_path, target_path)
-            structured_chunks = self._extract_structured_chunks(target_path)
-            stored_records.extend(structured_chunks)
+            file_records = self._prepare_file_records(file_path)
+            if not file_records:
+                continue
 
-        if not stored_records:
-            return []
+            texts = [record["text"] for record in file_records]
+            embeddings = encoder(texts)
+            if embeddings is None or len(embeddings) == 0:
+                continue
 
-        embeddings = self._get_encoder()([record["text"] for record in stored_records])
-        if embeddings is None or len(embeddings) == 0:
-            return []
+            for record, embedding in zip(file_records, embeddings):
+                record["embedding"] = embedding
 
-        for record, embedding in zip(stored_records, embeddings):
-            record["embedding"] = embedding
+            self.db.insert_records(file_records)
+            self._write_records(file_records)
+            stored_records.extend(file_records)
 
-        self.db.insert_records(stored_records)
-        self._write_records(stored_records)
         return [enrich_source(record) for record in stored_records]
+
+    def _prepare_file_records(self, file_path: str) -> List[Dict]:
+        source_path = Path(file_path)
+        target_path = self.upload_dir / source_path.name
+        if source_path.resolve() != target_path.resolve():
+            shutil.copy2(source_path, target_path)
+        return self._extract_structured_chunks(target_path)
+
+    def clear_all_documents(self) -> None:
+        for item in self.list_documents():
+            self.delete_document(item["file_name"])
 
     def query_documents(self, query: str, top_k: int = 5) -> List[Dict]:
         query_embedding = self._get_encoder()(query)
@@ -160,11 +181,19 @@ class KnowledgeBaseService:
                 )
         return records
 
+    def _get_office_loader(self):
+        if self.office_loader is None:
+            from rapid_rag.file_loader.office_loader import OfficeLoader
+
+            self.office_loader = OfficeLoader()
+        return self.office_loader
+
     def _extract_text_chunks(self, file_path: Path) -> List[Dict]:
         suffix = file_path.suffix.lower()
         if suffix in {".doc", ".docx", ".ppt", ".pptx", ".xlsx", ".xls"}:
-            contents = self.office_loader.extracter(file_path)
-            splitter = self.office_loader.splitter
+            office_loader = self._get_office_loader()
+            contents = office_loader.extracter(file_path)
+            splitter = office_loader.splitter
         else:
             contents = self.txt_loader(file_path)
             return [

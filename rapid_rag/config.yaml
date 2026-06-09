@@ -41,7 +41,7 @@ Encoder:
     api_type: aistudio
     access_token: your_token
   m3e-small:
-    model_path: assets/models/m3e-small
+    model_path: assets/models/BAAI/bge-base-zh-v1.5
 
 SENTENCE_SIZE: 200
 top_k: 5

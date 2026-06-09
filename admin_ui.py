@@ -78,6 +78,80 @@ def render_admin_panel() -> None:
         else:
             st.info("当前知识库中还没有文件。")
 
+        st.markdown("---")
+        st.markdown("#### 网页种子爬取")
+        st.caption(
+            "从预设的种子 URL 出发，提取该页面正文，并自动跟随页面上所有"
+            "同域链接再提取一层（不递归）。种子 URL 保存在 `data/settings/seed_urls.json`。"
+        )
+
+        col_a, col_b = st.columns([3, 1])
+        with col_a:
+            import json as _json
+            seed_path = Path("data/settings/seed_urls.json")
+            try:
+                current_seeds = _json.loads(seed_path.read_text(encoding="utf-8"))
+            except Exception:
+                current_seeds = []
+
+            edited_seeds = st.text_area(
+                "种子 URL（每行一个，可直接编辑）",
+                value="\n".join(current_seeds),
+                height=100,
+                key="seed_url_editor",
+            )
+        with col_b:
+            st.caption("")  # spacer
+            st.caption("")
+
+        col_crawl, col_save = st.columns([1, 1])
+        with col_save:
+            if st.button("保存种子列表", key="save_seeds_btn"):
+                new_seeds = [u.strip() for u in edited_seeds.split("\n") if u.strip()]
+                seed_path.parent.mkdir(parents=True, exist_ok=True)
+                seed_path.write_text(
+                    _json.dumps(new_seeds, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                st.success(f"已保存 {len(new_seeds)} 个种子 URL。")
+                st.rerun()
+        with col_crawl:
+            if st.button("从种子 URL 爬取", type="primary", key="crawl_seed_btn"):
+                urls_to_crawl = [u.strip() for u in edited_seeds.split("\n") if u.strip()]
+                if not urls_to_crawl:
+                    st.warning("请至少输入一个种子 URL。")
+                else:
+                    with st.spinner(f"正在爬取 {len(urls_to_crawl)} 个种子页面（含链接页面）..."):
+                        result = kb_service.add_seed_urls(urls_to_crawl)
+                    if result:
+                        st.success(f"爬取完成，共导入 {len(result)} 个文本块。")
+                        st.rerun()
+                    else:
+                        st.error("爬取失败。请检查 URL 是否可访问。")
+
+        st.markdown("---")
+        st.markdown("#### 网页单页导入")
+        st.caption("粘贴单个网页 URL，仅提取该页正文（不跟随链接）。")
+
+        web_urls = st.text_area(
+            "网页 URL（每行一个）",
+            height=80,
+            placeholder="https://xxx.edu.cn/policy/123",
+            key="web_url_input",
+        )
+        if st.button("导入网页内容", key="import_web_btn"):
+            urls = [u.strip() for u in web_urls.split("\n") if u.strip()]
+            if not urls:
+                st.warning("请至少输入一个 URL。")
+            else:
+                with st.spinner(f"正在抓取 {len(urls)} 个网页并提取正文..."):
+                    result = kb_service.add_urls(urls)
+                if result:
+                    st.success(f"已导入 {len(urls)} 个网页，共 {len(result)} 个文本块。")
+                    st.rerun()
+                else:
+                    st.error("导入失败。请检查 URL 是否可访问，以及页面是否包含可提取的正文。")
+
     with st.expander("规则图谱维护", expanded=False):
         records = load_graph_data()
         stats = get_graph_stats(records)

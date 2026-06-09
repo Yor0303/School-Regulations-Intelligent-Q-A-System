@@ -94,6 +94,100 @@ class KnowledgeBaseService:
 
         return [enrich_source(record) for record in stored_records]
 
+    def add_urls(self, urls: List[str]) -> List[Dict]:
+        """Fetch web pages, extract text, chunk, embed, and store."""
+        from rapid_rag.file_loader.web_loader import WebLoader
+
+        loader = WebLoader()
+        web_records = loader.process_urls(urls)
+        if not web_records:
+            return []
+
+        encoder = self._get_encoder()
+        upload_time = datetime.now().isoformat(timespec="seconds")
+        all_records = []
+
+        for wr in web_records:
+            chunks = self._split_web_text(wr["text"])
+            for idx, chunk_text in enumerate(chunks, start=1):
+                all_records.append(
+                    {
+                        "file_name": f"[web] {wr['source_url']}",
+                        "chunk_id": f"web_{hash(wr['source_url'])}_{idx}",
+                        "doc_type": "html",
+                        "page_no": idx,
+                        "paragraph_no": idx,
+                        "section_title": wr.get("page_title", ""),
+                        "text": chunk_text,
+                        "uid": "",
+                        "upload_time": upload_time,
+                    }
+                )
+
+        texts = [r["text"] for r in all_records]
+        embeddings = encoder(texts)
+        if embeddings is None or len(embeddings) == 0:
+            return []
+
+        for record, embedding in zip(all_records, embeddings):
+            record["embedding"] = embedding
+
+        self.db.insert_records(all_records)
+        self._write_records(all_records)
+        return [enrich_source(r) for r in all_records]
+
+    def _split_web_text(self, text: str) -> List[str]:
+        """Split web text into chunks using the same splitter as PDFs."""
+        split_contents = self.pdf_loader.splitter.split_text(text)
+        return self._merge_chunks(split_contents)
+
+    def add_seed_urls(self, seed_urls: List[str]) -> List[Dict]:
+        """Crawl seed URLs (page itself + linked pages, depth=1), then embed & store."""
+        from rapid_rag.file_loader.web_loader import WebLoader
+
+        loader = WebLoader()
+        all_pages = []
+        for seed in seed_urls:
+            pages = loader.crawl_seed(seed.strip())
+            all_pages.extend(pages)
+
+        if not all_pages:
+            return []
+
+        encoder = self._get_encoder()
+        upload_time = datetime.now().isoformat(timespec="seconds")
+        all_records = []
+
+        for page in all_pages:
+            chunks = self._split_web_text(page["text"])
+            for idx, chunk_text in enumerate(chunks, start=1):
+                url_hash = hash(page["source_url"])
+                all_records.append(
+                    {
+                        "file_name": f"[web] {page['page_title'][:60]}",
+                        "chunk_id": f"web_{abs(url_hash)}_{idx}",
+                        "doc_type": "html",
+                        "page_no": idx,
+                        "paragraph_no": idx,
+                        "section_title": page.get("page_title", ""),
+                        "text": chunk_text,
+                        "uid": page["source_url"],
+                        "upload_time": upload_time,
+                    }
+                )
+
+        texts = [r["text"] for r in all_records]
+        embeddings = encoder(texts)
+        if embeddings is None or len(embeddings) == 0:
+            return []
+
+        for record, embedding in zip(all_records, embeddings):
+            record["embedding"] = embedding
+
+        self.db.insert_records(all_records)
+        self._write_records(all_records)
+        return [enrich_source(r) for r in all_records]
+
     def _prepare_file_records(self, file_path: str) -> List[Dict]:
         source_path = Path(file_path)
         target_path = self.upload_dir / source_path.name

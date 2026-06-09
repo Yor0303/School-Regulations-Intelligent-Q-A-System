@@ -13,7 +13,12 @@ from graph_engine import (
     search_graph_with_llm,
 )
 from knowledge_base.memory import ConversationMemory
-from knowledge_base.violation_checker import judge_violation
+
+# 强制重载，确保 Streamlit 使用最新代码
+import knowledge_base.violation_checker as _vc
+import importlib as _il
+_il.reload(_vc)
+judge_violation = _vc.judge_violation
 from settings_manager import load_settings
 
 
@@ -160,13 +165,37 @@ def render_user_panel() -> None:
             height=120,
         )
         if st.button("开始判定"):
-            result = judge_violation(description)
-            st.write(f"结论：{result['conclusion']}")
-            st.write(f"依据：{result['basis']}")
-            if result["sources"]:
-                st.markdown("来源：")
-                for item in result["sources"]:
-                    st.write(f"- {item.get('source_label', item.get('file_name', ''))}")
+            if not description.strip():
+                st.error("请输入需要判定的行为描述。")
+            else:
+                with st.spinner("正在调用模型分析行为合规性..."):
+                    result = judge_violation(description)
+
+                vtype = result.get("violation_type", "未知")
+                badge_color = {
+                    "考试违纪": "#dc3545",
+                    "课堂考勤违规": "#fd7e14",
+                    "宿舍管理违规": "#ffc107",
+                    "学术不端": "#dc3545",
+                    "未知": "#6c757d",
+                }.get(vtype, "#6c757d")
+
+                st.markdown(
+                    f'<div style="margin:0.5rem 0;">'
+                    f'<span style="background:{badge_color};color:white;'
+                    f'padding:4px 12px;border-radius:12px;font-size:0.85rem;'
+                    f'font-weight:600;">类别：{vtype}</span></div>',
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown(result["conclusion"])
+
+                if result["sources"]:
+                    with st.expander("引用的制度条款", expanded=True):
+                        for idx, item in enumerate(result["sources"], start=1):
+                            src = item.get("source_label", item.get("file_name", ""))
+                            st.markdown(f"**{idx}. {src}**")
+                            st.caption(item.get("text", "")[:300] + "...")
 
     with tabs[2]:
         st.subheader("校园规则知识图谱")

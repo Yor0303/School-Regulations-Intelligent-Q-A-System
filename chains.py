@@ -42,19 +42,48 @@ def build_context(docs: List[Dict]) -> str:
 
 def filter_relevant_docs(query: str, docs: List[Dict], max_docs: int = 2) -> List[Dict]:
     keywords = extract_query_keywords(query)
+    if not keywords:
+        return docs[:max_docs]
+
     scored = []
     for index, doc in enumerate(docs):
         text = doc.get("text", "")
-        source = doc.get("source_label", "")
-        score = 0
-        for keyword in keywords:
-            if keyword in text:
-                score += 3
-            if keyword in source:
-                score += 1
-        if any(term in query for term in ["怎么办", "如何", "怎么"]):
-            if any(term in text for term in ["补考", "重修", "未通过", "成绩", "处理"]):
-                score += 3
+        file_name = doc.get("file_name", "")
+        section_title = doc.get("section_title", "") or ""
+
+        score = 0.0
+
+        # 关键词密度
+        for kw in keywords:
+            count = text.count(kw)
+            if count > 0:
+                score += 1.0 + min(count - 1, 3) * 0.3
+
+        # 标题命中
+        if section_title:
+            for kw in keywords:
+                if kw in section_title:
+                    score += 2.0
+
+        # 文件名命中
+        for kw in keywords:
+            if kw in file_name:
+                score += 3.0
+
+        # 操作类查询加分
+        if any(w in query for w in ["怎么", "如何", "怎样", "下载", "打印", "操作"]):
+            howto_terms = ["步骤", "操作", "方法", "流程", "系统", "平台", "登录", "点击", "选择", "下载", "打印", "pdf"]
+            for t in howto_terms:
+                if t in text:
+                    score += 0.5
+
+        # 违纪类查询加分
+        if any(w in query for w in ["处分", "违纪", "违规", "作弊", "处罚", "后果"]):
+            consequence_terms = ["处分", "处理", "无效", "零分", "取消", "不得", "禁止", "警告", "记过"]
+            for t in consequence_terms:
+                if t in text:
+                    score += 0.5
+
         scored.append((score, -index, doc))
 
     scored.sort(reverse=True)
@@ -65,20 +94,54 @@ def filter_relevant_docs(query: str, docs: List[Dict], max_docs: int = 2) -> Lis
 
 
 def extract_query_keywords(query: str) -> List[str]:
-    parts = re.split(r"[，。！？、\s]+", query)
-    keywords = []
-    stop_words = {"怎么办", "如何", "怎么", "是否", "可以", "需要", "如果", "什么", "那"}
-    for part in parts:
-        token = part.strip()
-        if len(token) < 2 or token in stop_words:
-            continue
-        keywords.append(token)
+    query = query.strip()
+    if not query:
+        return []
 
-    domain_terms = ["绩点", "补考", "重修", "成绩", "学分", "挂科", "不及格", "未通过"]
-    for term in domain_terms:
-        if term in query and term not in keywords:
-            keywords.append(term)
-    return keywords
+    try:
+        import jieba
+        words = jieba.lcut(query)
+    except ModuleNotFoundError:
+        words = re.split(r"[，。！？、\s]+", query)
+
+    stop_words = {
+        "怎么办", "如何", "怎么", "是否", "可以", "需要", "如果", "什么",
+        "那", "吗", "呢", "吧", "的", "了", "是", "在", "和", "有",
+        "我", "要", "想", "请问", "一下", "这个", "那个",
+    }
+
+    keywords = [w for w in words if len(w) >= 2 and w not in stop_words]
+
+    expansions = {
+        "成绩": ["成绩单", "成绩证明", "绩点", "平均绩点"],
+        "打印": ["下载", "导出"],
+        "下载": ["打印", "导出"],
+        "考试": ["考核", "期末", "补考", "缓考"],
+        "违纪": ["作弊", "处分", "违规"],
+        "作弊": ["违纪", "违规", "处分"],
+        "宿舍": ["住宿", "寝室", "公寓"],
+        "奖学金": ["评奖", "评优", "奖励"],
+        "学分": ["课程", "修读", "选修"],
+        "转专业": ["专业", "转入", "转出"],
+        "实习": ["实践", "实训"],
+        "缓考": ["延期", "考试", "申请"],
+        "补考": ["重修", "未通过", "不及格"],
+        "重修": ["补考", "不及格", "未通过"],
+        "处分": ["警告", "记过", "留校察看", "开除"],
+    }
+
+    expanded = list(keywords)
+    for kw in keywords:
+        if kw in expansions:
+            expanded.extend(expansions[kw])
+
+    seen = set()
+    result = []
+    for kw in expanded:
+        if kw not in seen:
+            seen.add(kw)
+            result.append(kw)
+    return result
 
 
 def build_qa_prompt(query: str, context: str, history_text: str = "", graph_context: str = "") -> str:

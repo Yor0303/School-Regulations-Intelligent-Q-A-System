@@ -11,7 +11,12 @@ from typing import Dict, List
 from rapid_rag.file_loader.pdf_loader import PDFLoader
 from rapid_rag.file_loader.txt_loader import TXTLoader
 from rapid_rag.utils import mkdir, read_yaml
-from rapid_rag.vector_utils import DBUtils
+
+# 强制重载 vector_utils，确保 _row_ids 修复生效（避免 Streamlit 模块缓存）
+import rapid_rag.vector_utils.sqlite_version as _sv
+import importlib as _il
+_il.reload(_sv)
+DBUtils = _sv.DBUtils
 
 from .source_mapper import enrich_source
 
@@ -103,7 +108,7 @@ class KnowledgeBaseService:
     def query_documents(self, query: str, top_k: int = 5) -> List[Dict]:
         query_embedding = self._get_encoder()(query)
         search_top_k = max(top_k * 3, top_k)
-        results, _ = self.db.search_with_metadata(query_embedding, top_k=search_top_k)
+        results, _elapsed = self.db.search_with_metadata(query_embedding, top_k=search_top_k)
         if not results:
             return []
         reranked = self._rerank_results(query, results)
@@ -276,44 +281,123 @@ class KnowledgeBaseService:
 
     def _rerank_results(self, query: str, results: List[Dict]) -> List[Dict]:
         keywords = self._extract_keywords(query)
-        scored_results = []
+        if not keywords:
+            return results
+
+        scored = []
         for index, result in enumerate(results):
             text = result.get("text", "")
-            score = 0
-            for keyword in keywords:
-                if keyword in text:
-                    score += 3
-            if result.get("section_title"):
-                for keyword in keywords:
-                    if keyword in result["section_title"]:
-                        score += 2
-            if "绩点" in query and "绩点" in text:
-                score += 4
-            if any(term in query for term in ["怎么办", "如何", "怎么"]):
-                if any(term in text for term in ["重修", "补考", "处理", "规定", "不得"]):
-                    score += 2
-            scored_results.append((score, -index, result))
+            file_name = result.get("file_name", "")
+            section_title = result.get("section_title", "") or ""
+            page_no = result.get("page_no")
 
-        scored_results.sort(reverse=True)
-        return [item[2] for item in scored_results]
+            score = 0.0
+
+            # ---- 1. 关键词命中密度 ----
+            for kw in keywords:
+                count = text.count(kw)
+                if count > 0:
+                    score += 1.0 + min(count - 1, 3) * 0.3
+
+            # ---- 2. 标题命中加权 ----
+            if section_title:
+                for kw in keywords:
+                    if kw in section_title:
+                        score += 2.0
+
+            # ---- 3. 文件名命中高权重 ----
+            for kw in keywords:
+                if kw in file_name:
+                    score += 3.0
+
+            # ---- 4. 查询意图针对性加分 ----
+            if any(w in query for w in ["怎么", "如何", "怎样", "下载", "打印", "操作", "流程", "步骤"]):
+                howto_terms = [
+                    "步骤", "操作", "方法", "流程", "系统", "平台",
+                    "登录", "点击", "选择", "下载", "打印", "pdf", "网站",
+                ]
+                for t in howto_terms:
+                    if t in text:
+                        score += 0.5
+
+            if any(w in query for w in ["处分", "违纪", "违规", "作弊", "处罚", "后果"]):
+                consequence_terms = [
+                    "处分", "处理", "无效", "零分", "取消", "不得",
+                    "禁止", "警告", "记过", "开除", "留校察看",
+                ]
+                for t in consequence_terms:
+                    if t in text:
+                        score += 0.5
+
+            if any(w in query for w in ["条件", "要求", "资格", "申请", "需要什么"]):
+                condition_terms = [
+                    "条件", "要求", "资格", "规定", "必须", "应当",
+                    "需要满足", "符合", "具备",
+                ]
+                for t in condition_terms:
+                    if t in text:
+                        score += 0.5
+
+            # ---- 5. 文档多样性：第一个 chunk 轻微偏好 ----
+            if page_no is not None:
+                score += max(0, (10 - page_no) * 0.05)
+
+            # ---- 6. 向量检索位置：原始排序也有参考价值 ----
+            score += max(0, (len(results) - index) / len(results) * 0.5)
+
+            scored.append((score, -index, result))
+
+        scored.sort(reverse=True)
+        return [item[2] for item in scored]
 
     def _extract_keywords(self, query: str) -> List[str]:
-        parts = re.split(r"[，。！？、\s]+", query)
-        keywords = []
-        stop_words = {"怎么办", "如何", "怎么", "是否", "可以", "需要", "如果", "什么"}
-        for part in parts:
-            token = part.strip()
-            if len(token) < 2 or token in stop_words:
-                continue
-            keywords.append(token)
-            if len(token) > 2:
-                keywords.extend(
-                    sub_token
-                    for sub_token in ["绩点", "重修", "补考", "学分", "成绩", "不及格", "挂科"]
-                    if sub_token in token
-                )
-        deduped = []
-        for keyword in keywords:
-            if keyword not in deduped:
-                deduped.append(keyword)
-        return deduped
+        query = query.strip()
+        if not query:
+            return []
+
+        try:
+            import jieba
+            words = jieba.lcut(query)
+        except ModuleNotFoundError:
+            words = re.split(r"[，。！？、\s]+", query)
+
+        stop_words = {
+            "怎么办", "如何", "怎么", "是否", "可以", "需要", "如果", "什么",
+            "那", "吗", "呢", "吧", "的", "了", "是", "在", "和", "有",
+            "我", "要", "想", "请问", "一下", "这个", "那个",
+        }
+
+        keywords = [w for w in words if len(w) >= 2 and w not in stop_words]
+
+        # 领域词典：同义扩展，覆盖用户口语化表达
+        expansions = {
+            "成绩": ["成绩单", "成绩证明", "绩点", "平均绩点"],
+            "打印": ["下载", "导出", "输出"],
+            "下载": ["打印", "导出"],
+            "考试": ["考核", "期末", "补考", "缓考"],
+            "违纪": ["作弊", "处分", "违规"],
+            "作弊": ["违纪", "违规", "处分"],
+            "宿舍": ["住宿", "寝室", "公寓"],
+            "奖学金": ["评奖", "评优", "奖励"],
+            "学分": ["课程", "修读", "选修"],
+            "转专业": ["专业", "转入", "转出"],
+            "实习": ["实践", "实训"],
+            "缓考": ["延期", "考试", "申请"],
+            "补考": ["重修", "未通过", "不及格"],
+            "重修": ["补考", "不及格", "未通过"],
+            "处分": ["警告", "记过", "留校察看", "开除"],
+        }
+
+        expanded = list(keywords)
+        for kw in keywords:
+            if kw in expansions:
+                expanded.extend(expansions[kw])
+
+        # 去重保序
+        seen = set()
+        result = []
+        for kw in expanded:
+            if kw not in seen:
+                seen.add(kw)
+                result.append(kw)
+        return result

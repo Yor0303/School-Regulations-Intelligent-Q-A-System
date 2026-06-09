@@ -77,9 +77,9 @@ class DBUtils:
     def load_vectors(self, uid: Optional[str] = None):
         cur, _ = self.connect_db()
 
-        search_sql = f"select file_name, embeddings, texts from {self.table_name}"
+        search_sql = f"select file_name, embeddings, texts, rowid from {self.table_name}"
         if uid:
-            search_sql = f'select file_name, embeddings, texts from {self.table_name} where uids="{uid}"'
+            search_sql = f'select file_name, embeddings, texts, rowid from {self.table_name} where uids="{uid}"'
 
         cur.execute(search_sql)
         all_vectors = cur.fetchall()
@@ -87,6 +87,7 @@ class DBUtils:
         self.file_names = np.array([v[0] for v in all_vectors])
         all_embeddings = np.array([v[1] for v in all_vectors])
         self.all_texts = np.array([v[2] for v in all_vectors])
+        self._row_ids = [v[3] for v in all_vectors]
 
         self.search_index = faiss.IndexFlatL2(all_embeddings.shape[1])
         self.search_index.add(all_embeddings)
@@ -203,15 +204,19 @@ class DBUtils:
         if isinstance(top_index, int):
             top_index = [top_index]
 
+        # Map FAISS positions → actual SQLite rowid
+        row_ids = [self._row_ids[idx] for idx in top_index]
+
         cur, _ = self.connect_db()
-        placeholders = ",".join(["?"] * len(top_index))
+        placeholders = ",".join(["?"] * len(row_ids))
         cur.execute(
             f"""
-            select file_name, texts, chunk_id, doc_type, page_no, paragraph_no, section_title, uids
+            select file_name, texts, chunk_id, doc_type, page_no,
+                   paragraph_no, section_title, uids, rowid
             from {self.table_name}
-            where id in ({placeholders})
+            where rowid in ({placeholders})
             """,
-            [idx + 1 for idx in top_index],
+            row_ids,
         )
         rows = cur.fetchall()
         row_map = {
@@ -229,14 +234,15 @@ class DBUtils:
         }
 
         results = []
-        for idx in top_index:
+        for row_id in row_ids:
             cur.execute(
                 f"""
-                select file_name, texts, chunk_id, doc_type, page_no, paragraph_no, section_title, uids
+                select file_name, texts, chunk_id, doc_type, page_no,
+                       paragraph_no, section_title, uids
                 from {self.table_name}
-                where id=?
+                where rowid=?
                 """,
-                (idx + 1,),
+                (row_id,),
             )
             row = cur.fetchone()
             if row is None:

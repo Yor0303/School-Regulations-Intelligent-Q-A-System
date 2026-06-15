@@ -4,11 +4,16 @@ import streamlit as st
 import base64
 from pathlib import Path
 
+from ollama_env import apply_ollama_env, validate_models_directory
+
+apply_ollama_env(force_from_config=True)
+
 import admin_ui
 import chains
 import graph_engine
 import knowledge_base.kb_service as kb_service_module
 import rapid_rag.encoder.sentence_transformer as sentence_transformer_module
+import document_ui
 import user_ui
 from auth import ensure_auth_state, login_admin, logout_admin
 from settings_manager import load_settings
@@ -18,7 +23,11 @@ from settings_manager import load_settings
 importlib.reload(sentence_transformer_module)
 importlib.reload(kb_service_module)
 importlib.reload(graph_engine)
+import document_service.service as document_service_module
+
 importlib.reload(chains)
+importlib.reload(document_service_module)
+importlib.reload(document_ui)
 importlib.reload(user_ui)
 importlib.reload(admin_ui)
 
@@ -318,6 +327,13 @@ def main():
     """, unsafe_allow_html=True)
     with st.sidebar:
         st.header("访问控制")
+        ok, models_msg = validate_models_directory()
+        st.caption(f"Ollama 模型库：{models_msg}")
+        if not ok:
+            st.caption(
+                "可在 `rapid_rag/config.local.yaml` 配置本机 models_path；"
+                "中文用户名可配合 `scripts/ollama.local.ps1` + restart_ollama.ps1。"
+            )
         if st.session_state["is_admin"]:
             st.success("当前为管理员模式")
             if st.button("退出管理员模式"):

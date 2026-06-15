@@ -128,8 +128,15 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
-# mypy
+docs/设计报告/
+docs/index.md
+docs/online_demo.md
+docs/quickstart.md
+docs/road_map.md
+docs/sponsor.md
+docs/generate_presentation_docx.py
+rapid_rag/config.local.yaml
+scripts/ollama.local.ps1
 .mypy_cache/
 .dmypy.json
 dmypy.json

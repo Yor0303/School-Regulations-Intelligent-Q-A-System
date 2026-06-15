@@ -1,0 +1,5 @@
+# 复制为 ollama.local.ps1（该文件已 gitignore，仅本机生效）
+# 用于 restart_ollama.ps1：中文用户名 + 模型在其它盘时建立联结并重启服务
+
+$OllamaModelsJunction = "C:\ollama_models"
+$OllamaModelsTarget = "F:\PROGRAM_FILES\ollama\models"

@@ -1,0 +1,205 @@
+{
+  "disclaimer": "本系统生成内容为依据已入库制度整理的草稿，非学校官方空白表格。提交前请向学院/教务处确认最新格式与材料要求。",
+  "document_types": [
+    {
+      "id": "deferred_exam",
+      "title": "缓考申请说明",
+      "keywords": ["缓考", "延期考试", "推迟考试", "晚考"],
+      "document_title": "缓考申请说明",
+      "addressee": "教务处/开课学院",
+      "regulation_queries": [
+        "缓考申请 条件 程序 材料 因病",
+        "申请缓考 证明材料 考试前"
+      ],
+      "regulation_signals": ["缓考"],
+      "required_slots": [
+        "student_name",
+        "student_id",
+        "college",
+        "course_name",
+        "exam_date",
+        "reason",
+        "contact"
+      ],
+      "optional_slots": ["major", "phone", "attachments_note"],
+      "slot_labels": {
+        "student_name": "姓名",
+        "student_id": "学号",
+        "college": "学院",
+        "major": "专业",
+        "course_name": "课程名称",
+        "exam_date": "考试日期/时间",
+        "reason": "申请缓考原因",
+        "contact": "联系方式",
+        "phone": "手机号码",
+        "attachments_note": "附件说明"
+      },
+      "default_attachments": [
+        "缓考事由相关证明材料（如诊断证明、活动通知等，视学校规定准备）"
+      ],
+      "body_template": "本人因{reason}，无法按时参加{course_name}于{exam_date}的考试，现根据学校相关规定，申请对该课程考试办理缓考。"
+    },
+    {
+      "id": "suspension_study",
+      "title": "休学申请陈述书",
+      "keywords": ["休学", "暂停学业", "保留学籍休学"],
+      "document_title": "休学申请陈述书",
+      "addressee": "所在学院/教务处",
+      "regulation_queries": [
+        "休学 申请 条件 程序 材料",
+        "申请休学 因病 创业 社会实践"
+      ],
+      "regulation_signals": ["休学"],
+      "required_slots": [
+        "student_name",
+        "student_id",
+        "college",
+        "major",
+        "reason",
+        "start_date",
+        "end_date",
+        "contact"
+      ],
+      "optional_slots": ["phone", "attachments_note"],
+      "slot_labels": {
+        "student_name": "姓名",
+        "student_id": "学号",
+        "college": "学院",
+        "major": "专业",
+        "reason": "休学原因",
+        "start_date": "休学开始时间",
+        "end_date": "拟复学/休学期满时间",
+        "contact": "联系方式",
+        "phone": "手机号码",
+        "attachments_note": "附件说明"
+      },
+      "default_attachments": [
+        "休学申请书（学院格式，若学院另有要求以学院为准）",
+        "休学事由相关证明材料"
+      ],
+      "body_template": "本人因{reason}，申请自{start_date}起休学，拟于{end_date}前办理复学相关事宜。休学期间本人将遵守学校学籍管理规定。"
+    },
+    {
+      "id": "leave_absence",
+      "title": "请假申请说明",
+      "keywords": [
+        "请假",
+        "事假",
+        "病假",
+        "不去上课",
+        "缺课",
+        "不能上课",
+        "无法上课",
+        "临时请假"
+      ],
+      "document_title": "请假申请说明",
+      "addressee": "辅导员/任课教师/学院",
+      "regulation_queries": [
+        "请假 事假 病假 程序",
+        "学生请假 考勤 上课",
+        "因故不能上课 请假手续"
+      ],
+      "regulation_signals": ["请假", "事假", "病假", "考勤", "上课"],
+      "required_slots": [
+        "student_name",
+        "student_id",
+        "college",
+        "leave_start",
+        "leave_end",
+        "reason",
+        "contact"
+      ],
+      "optional_slots": ["major", "course_name", "phone", "attachments_note"],
+      "slot_labels": {
+        "student_name": "姓名",
+        "student_id": "学号",
+        "college": "学院",
+        "major": "专业",
+        "course_name": "涉及课程/活动（如有）",
+        "leave_start": "请假开始时间",
+        "leave_end": "请假结束时间",
+        "reason": "请假原因",
+        "contact": "联系方式",
+        "phone": "手机号码",
+        "attachments_note": "附件说明"
+      },
+      "default_attachments": [
+        "病假建议提供医疗证明；其他事由材料以学院/任课教师要求为准"
+      ],
+      "body_template": "本人因{reason}，于{leave_start}至{leave_end}期间无法按时上课/参加活动。现按规定提出请假申请，请假期间安全责任自负，并将按要求完成课程学习任务。"
+    },
+    {
+      "id": "exam_exemption",
+      "title": "免考申请说明",
+      "keywords": ["免考", "免修", "不参加考试", "申请免考"],
+      "document_title": "免考/免修申请说明",
+      "addressee": "开课学院/教务处",
+      "regulation_queries": [
+        "免考 免修 申请 条件",
+        "课程免修 免考 认定"
+      ],
+      "regulation_signals": ["免考", "免修"],
+      "required_slots": [
+        "student_name",
+        "student_id",
+        "college",
+        "course_name",
+        "reason",
+        "contact"
+      ],
+      "optional_slots": ["major", "phone", "attachments_note"],
+      "slot_labels": {
+        "student_name": "姓名",
+        "student_id": "学号",
+        "college": "学院",
+        "major": "专业",
+        "course_name": "课程名称",
+        "reason": "申请免考/免修理由",
+        "contact": "联系方式",
+        "phone": "手机号码",
+        "attachments_note": "附件说明"
+      },
+      "default_attachments": [
+        "免考/免修相关证明材料（如成绩证明、认定文件等，视课程性质准备）"
+      ],
+      "body_template": "本人申请对课程{course_name}办理免考/免修相关事宜。理由如下：{reason}。恳请学院/教务处依照培养方案及学籍管理规定审核。"
+    },
+    {
+      "id": "return_to_study",
+      "title": "复学申请陈述书",
+      "keywords": ["复学", "恢复学籍", "结束休学"],
+      "document_title": "复学申请陈述书",
+      "addressee": "所在学院/教务处",
+      "regulation_queries": [
+        "复学 申请 程序 材料",
+        "休学期满 复学"
+      ],
+      "regulation_signals": ["复学"],
+      "required_slots": [
+        "student_name",
+        "student_id",
+        "college",
+        "major",
+        "reason",
+        "return_date",
+        "contact"
+      ],
+      "optional_slots": ["phone", "attachments_note"],
+      "slot_labels": {
+        "student_name": "姓名",
+        "student_id": "学号",
+        "college": "学院",
+        "major": "专业",
+        "reason": "复学说明",
+        "return_date": "拟复学日期",
+        "contact": "联系方式",
+        "phone": "手机号码",
+        "attachments_note": "附件说明"
+      },
+      "default_attachments": [
+        "复学相关材料（如休学期间情况说明、医疗康复证明等，视规定准备）"
+      ],
+      "body_template": "本人此前按规定办理休学，现因{reason}，申请于{return_date}复学，继续完成学业。"
+    }
+  ]
+}

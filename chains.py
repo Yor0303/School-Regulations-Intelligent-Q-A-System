@@ -7,6 +7,7 @@ from knowledge_base import KnowledgeBaseService
 from knowledge_base.memory import ConversationMemory
 from rapid_rag.utils import read_yaml
 from graph_engine import get_graph_context_for_query
+from ollama_env import filter_ollama_client_kwargs
 
 
 CONFIG_PATH = "rapid_rag/config.yaml"
@@ -22,7 +23,9 @@ def get_llm():
     llm_params: Dict[str, Dict] = config.get("LLM_API", {})
 
     if "Ollama" in llm_params:
-        return getattr(llm_module, "Ollama")(**llm_params["Ollama"])
+        return getattr(llm_module, "Ollama")(
+            **filter_ollama_client_kwargs(llm_params["Ollama"])
+        )
 
     llm_name, params = next(iter(llm_params.items()))
     return getattr(llm_module, llm_name)(**params)
@@ -181,7 +184,10 @@ def build_qa_prompt(query: str, context: str, history_text: str = "", graph_cont
 
 def generate_answer(prompt: str) -> str:
     llm = get_llm()
-    response = llm(prompt, history=None)
+    try:
+        response = llm(prompt, history=None)
+    except RuntimeError as exc:
+        return str(exc)
     if not response:
         return (
             "Relevant policy excerpts were found, but a final answer could not be generated."

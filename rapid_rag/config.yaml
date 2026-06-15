@@ -5,6 +5,7 @@ LLM_API:
   Ollama:
     host: http://localhost:11434
     model: qwen2.5:7b
+    # 本机模型目录请写在 rapid_rag/config.local.yaml（不入库），勿在此写死路径
   ERNIEBot:
     api_type: aistudio
     access_token: your_token

@@ -179,13 +179,16 @@ def load_graph_seed_data() -> List[Dict]:
 
 def _get_llm():
     from rapid_rag.utils import read_yaml
+    from ollama_env import filter_ollama_client_kwargs
 
     config = read_yaml("rapid_rag/config.yaml")
     llm_module = importlib.import_module("rapid_rag.llm")
     llm_params: Dict[str, Dict] = config.get("LLM_API", {})
 
     if "Ollama" in llm_params:
-        return getattr(llm_module, "Ollama")(**llm_params["Ollama"])
+        return getattr(llm_module, "Ollama")(
+            **filter_ollama_client_kwargs(llm_params["Ollama"])
+        )
 
     llm_name, params = next(iter(llm_params.items()))
     return getattr(llm_module, llm_name)(**params)

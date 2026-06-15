@@ -19,6 +19,7 @@ import knowledge_base.violation_checker as _vc
 import importlib as _il
 _il.reload(_vc)
 judge_violation = _vc.judge_violation
+from document_ui import render_document_panel
 from settings_manager import load_settings
 
 
@@ -118,7 +119,7 @@ def render_user_panel() -> None:
         "知识库涵盖：学籍管理 · 考试管理 · 宿舍管理 · 奖助学金 · 违纪处分"
     )
 
-    tabs = st.tabs(["智能问答", "违规判定", "规则图谱"])
+    tabs = st.tabs(["智能问答", "违规判定", "规则图谱", "办事文书"])
 
     with tabs[0]:
         history = st.session_state["conversation_memory"].get_history()
@@ -261,3 +262,6 @@ def render_user_panel() -> None:
                         st.caption(f"来源：{item.get('source_label', '暂无来源')}")
             elif search_mode == "关键词匹配":
                 st.info("未找到相关规则链。")
+
+    with tabs[3]:
+        render_document_panel()

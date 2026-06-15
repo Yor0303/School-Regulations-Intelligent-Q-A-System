@@ -16,14 +16,26 @@ class Ollama:
         if not history:
             history = []
 
-        response = self.client.chat(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            model=self.model,
-        )
+        try:
+            response = self.client.chat(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                model=self.model,
+            )
+        except ollama.ResponseError as exc:
+            msg = str(exc)
+            if "failed to load model" in msg or "llama-server" in msg:
+                raise RuntimeError(
+                    "本地 Ollama 无法加载模型（常见于 Windows 中文用户名路径）。"
+                    "请退出 Ollama 托盘后执行 .\\scripts\\restart_ollama.ps1；"
+                    "若需自定义模型目录，复制 scripts/ollama.local.ps1.example。"
+                    f"原始错误：{msg}"
+                ) from exc
+            raise
+
         result = response["message"]["content"]
         return result
